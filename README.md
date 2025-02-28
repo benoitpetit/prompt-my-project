@@ -112,6 +112,20 @@ curl -fsSL https://raw.githubusercontent.com/benoitpetit/prompt-my-project/refs/
 irm https://raw.githubusercontent.com/benoitpetit/prompt-my-project/refs/heads/master/scripts/install.ps1 | iex
 ```
 
+## 🗑️ Uninstallation
+
+### macOS & Linux
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/benoitpetit/prompt-my-project/refs/heads/master/scripts/remove.sh | bash
+```
+
+### Windows
+
+```powershell
+irm https://raw.githubusercontent.com/benoitpetit/prompt-my-project/refs/heads/master/scripts/remove.ps1 | iex
+```
+
 ## 🛠️ Usage
 
 ### Basic Syntax
@@ -182,3 +196,17 @@ go mod tidy
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🗑️ Uninstallation
+
+### macOS & Linux
+
+```bash
+/usr/local/bin/pmp
+```
+
+### Windows
+
+```powershell
+Remove-Item -Path "C:\Program Files\pmp" -Recurse
+```

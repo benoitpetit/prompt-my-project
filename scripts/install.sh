@@ -1,17 +1,17 @@
 #!/bin/bash
 
-# Vérification des dépendances
-command -v curl >/dev/null 2>&1 || { echo "Erreur: curl est requis" >&2; exit 1; }
-command -v tar >/dev/null 2>&1 || { echo "Erreur: tar est requis" >&2; exit 1; }
+# Dependencies check
+command -v curl >/dev/null 2>&1 || { echo "Error: curl is required" >&2; exit 1; }
+command -v tar >/dev/null 2>&1 || { echo "Error: tar is required" >&2; exit 1; }
 
-# Vérification de la connexion Internet et GitHub
-echo "Vérification de la connexion à GitHub..."
+# Internet and GitHub connectivity check
+echo "Checking GitHub connection..."
 if ! curl -s --connect-timeout 5 --max-time 10 --head https://github.com > /dev/null; then
-    echo "Erreur: Pas de connexion Internet ou GitHub inaccessible"
+    echo "Error: No Internet connection or GitHub is unreachable"
     exit 1
 fi
 
-# Détection de l'OS et de l'architecture
+# OS and architecture detection
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m)
 case $ARCH in
@@ -28,66 +28,123 @@ if [ "$OS" = "darwin" ]; then
     OS="mac"
 fi
 
-# Obtenir la dernière version depuis GitHub
-echo "Récupération de la dernière version..."
-LATEST_RELEASE=$(curl -s "https://api.github.com/repos/$REPO/releases/latest")
-if [ -z "$LATEST_RELEASE" ]; then
-    echo "Erreur: Impossible de récupérer les informations de la dernière version"
+# Get the latest version from GitHub
+echo "Retrieving the latest version..."
+if ! LATEST_RELEASE=$(curl -s --connect-timeout 5 --max-time 15 "https://api.github.com/repos/$REPO/releases/latest"); then
+    echo "Error: Unable to connect to GitHub API"
     exit 1
 fi
 
-VERSION=$(echo "$LATEST_RELEASE" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+if [ -z "$LATEST_RELEASE" ] || [[ "$LATEST_RELEASE" == *"Not Found"* ]]; then
+    echo "Error: Unable to retrieve latest version information"
+    exit 1
+fi
+
+# Version extraction correction
+# The previous method doesn't work correctly with all API response formats
+if command -v jq >/dev/null 2>&1; then
+    # Use jq if available (more reliable)
+    VERSION=$(echo "$LATEST_RELEASE" | jq -r .tag_name)
+else
+    # Fallback method with grep and sed
+    VERSION=$(echo "$LATEST_RELEASE" | grep -o '"tag_name"[^,]*' | cut -d'"' -f4)
+fi
+
 if [ -z "$VERSION" ]; then
-    echo "Erreur: Impossible d'extraire le numéro de version"
+    # Try an alternative method if previous ones failed
+    VERSION=$(echo "$LATEST_RELEASE" | grep -o '"tag_name": *"[^"]*"' | sed 's/.*: *"//;s/"$//')
+    
+    if [ -z "$VERSION" ]; then
+        echo "Error: Unable to extract version number"
+        echo "API Response (beginning): $(echo "$LATEST_RELEASE" | head -n 10)"
+        exit 1
+    fi
+fi
+
+# Display version for debugging
+echo "Extracted version: $VERSION"
+
+# Make sure the version is in the correct format for the download URL
+# In build.sh, the version obtained by Git includes the "v" prefix if present in the tag
+VERSION_WITHOUT_V=${VERSION#v}  # Remove 'v' at the beginning if present
+
+# Check if the download URL exists
+DOWNLOAD_URL="https://github.com/$REPO/releases/download/$VERSION/${BINARY_NAME}_${VERSION}_${OS}_${ARCH}.tar.gz"
+echo "Main URL: $DOWNLOAD_URL"
+
+# Alternative without 'v' prefix in filename
+ALT_DOWNLOAD_URL="https://github.com/$REPO/releases/download/$VERSION/${BINARY_NAME}_${VERSION_WITHOUT_V}_${OS}_${ARCH}.tar.gz"
+echo "Alternative URL: $ALT_DOWNLOAD_URL"
+
+# Try the main URL first
+if curl --output /dev/null --silent --head --fail "$DOWNLOAD_URL"; then
+    echo "URL found: $DOWNLOAD_URL"
+    FINAL_URL="$DOWNLOAD_URL"
+elif curl --output /dev/null --silent --head --fail "$ALT_DOWNLOAD_URL"; then
+    echo "Alternative URL found: $ALT_DOWNLOAD_URL"
+    FINAL_URL="$ALT_DOWNLOAD_URL"
+else
+    echo "Error: The binary for your system ($OS/$ARCH) doesn't exist in version $VERSION"
+    echo "URLs not found:"
+    echo "- $DOWNLOAD_URL"
+    echo "- $ALT_DOWNLOAD_URL"
     exit 1
 fi
 
-# Construire l'URL de téléchargement
-DOWNLOAD_URL="https://github.com/$REPO/releases/download/$VERSION/${BINARY_NAME}_${VERSION}_${OS}_${ARCH}.tar.gz"
-echo "Version détectée: $VERSION"
-echo "Architecture: $OS/$ARCH"
-
-# Créer un dossier temporaire
+# Create a temporary directory
 TMP_DIR=$(mktemp -d)
 if [ $? -ne 0 ]; then
-    echo "Erreur: Impossible de créer un dossier temporaire"
+    echo "Error: Unable to create a temporary directory"
     exit 1
 fi
 
-cd $TMP_DIR || { echo "Erreur: Impossible d'accéder au dossier temporaire"; exit 1; }
+cd $TMP_DIR || { echo "Error: Unable to access temporary directory"; exit 1; }
 
-# Télécharger et extraire l'archive
-echo "Téléchargement depuis $DOWNLOAD_URL..."
-if ! curl -L -o binary.tar.gz "$DOWNLOAD_URL"; then
-    echo "Erreur lors du téléchargement"
+# Download and extract the archive
+echo "Downloading from $FINAL_URL..."
+if ! curl -L -o binary.tar.gz "$FINAL_URL"; then
+    echo "Error during download"
     rm -rf $TMP_DIR
     exit 1
 fi
 
 if ! tar xzf binary.tar.gz; then
-    echo "Erreur lors de l'extraction de l'archive"
+    echo "Error extracting the archive"
     rm -rf $TMP_DIR
     exit 1
 fi
 
+# Find the binary in the extracted archive (it might be in a subdirectory)
+echo "Searching for binary..."
+BINARY_PATH=$(find . -type f -name "$BINARY_NAME" | head -n 1)
+
+if [ -z "$BINARY_PATH" ]; then
+    echo "Error: Unable to find binary $BINARY_NAME in the archive"
+    ls -la
+    rm -rf $TMP_DIR
+    exit 1
+fi
+
+echo "Binary found: $BINARY_PATH"
+
 # Installation
-echo "Installation dans $INSTALL_DIR..."
+echo "Installing to $INSTALL_DIR..."
 if [ ! -w "$INSTALL_DIR" ]; then
-    # Essayer avec sudo si le dossier n'est pas accessible en écriture
+    # Try with sudo if the user doesn't have write permissions to the install directory
     if command -v sudo >/dev/null 2>&1; then
-        sudo mv $BINARY_NAME $INSTALL_DIR/ || { echo "Erreur lors de l'installation"; exit 1; }
-        sudo chmod +x $INSTALL_DIR/$BINARY_NAME || { echo "Erreur lors de la modification des permissions"; exit 1; }
+        sudo mv "$BINARY_PATH" $INSTALL_DIR/$BINARY_NAME || { echo "Error during installation"; exit 1; }
+        sudo chmod +x $INSTALL_DIR/$BINARY_NAME || { echo "Error changing permissions"; exit 1; }
     else
-        echo "Erreur: Permissions insuffisantes pour installer dans $INSTALL_DIR et sudo n'est pas disponible"
+        echo "Error: Insufficient permissions to install in $INSTALL_DIR and sudo is not available"
         exit 1
     fi
 else
-    mv $BINARY_NAME $INSTALL_DIR/ || { echo "Erreur lors de l'installation"; exit 1; }
-    chmod +x $INSTALL_DIR/$BINARY_NAME || { echo "Erreur lors de la modification des permissions"; exit 1; }
+    mv "$BINARY_PATH" $INSTALL_DIR/$BINARY_NAME || { echo "Error during installation"; exit 1; }
+    chmod +x $INSTALL_DIR/$BINARY_NAME || { echo "Error changing permissions"; exit 1; }
 fi
 
-# Nettoyage
+# Cleanup
 cd - > /dev/null
 rm -rf $TMP_DIR
 
-echo "✅ Installation terminée ! Vous pouvez utiliser 'pmp --help' pour voir les options disponibles."
+echo "✅ Installation complete! You can use 'pmp --help' to see available options."

@@ -18,19 +18,19 @@ import (
 	"time"
 
 	"github.com/bmatcuk/doublestar/v4"
-	"github.com/dustin/go-humanize" 
+	"github.com/dustin/go-humanize"
 	"github.com/fatih/color"
 	"github.com/go-git/go-git/v5/plumbing/format/gitignore"
 	"github.com/urfave/cli/v2"
 )
 
-// Configuration globale
+// Global configuration
 const (
 	Version   = "1.0.0"
 	GoVersion = "1.21"
 )
 
-// Configuration par défaut
+// Default configuration
 var DefaultConfig = struct {
 	MinSize   string
 	MaxSize   string
@@ -43,7 +43,7 @@ var DefaultConfig = struct {
 	GitIgnore: true,
 }
 
-// Liste des extensions à exclure
+// List of extensions to exclude
 var binaryExtensions = map[string]bool{
 	".exe": true, ".dll": true, ".so": true, ".dylib": true,
 	".bin": true, ".obj": true, ".o": true, ".a": true,
@@ -55,13 +55,13 @@ var binaryExtensions = map[string]bool{
 }
 
 func isBinaryFile(filepath string) bool {
-	// Vérifier l'extension
+	// Check extension
 	ext := strings.ToLower(path.Ext(filepath))
 	if binaryExtensions[ext] {
 		return true
 	}
 
-	// Vérifier le type MIME
+	// Check MIME type
 	mimeType := mime.TypeByExtension(ext)
 	if mimeType != "" {
 		return !strings.HasPrefix(mimeType, "text/") &&
@@ -69,10 +69,10 @@ func isBinaryFile(filepath string) bool {
 			!strings.Contains(mimeType, "application/xml")
 	}
 
-	// Lire les premiers octets pour détecter les caractères nuls
+	// Read first bytes to detect null characters
 	file, err := os.Open(filepath)
 	if err != nil {
-		return true // En cas de doute, considérer comme binaire
+		return true // When in doubt, consider as binary
 	}
 	defer file.Close()
 
@@ -91,7 +91,7 @@ type Directory struct {
 	Files   []string
 }
 
-// SimpleProgress représente une barre de progression simple avec mutex
+// SimpleProgress represents a simple progress bar with mutex
 type SimpleProgress struct {
 	sync.Mutex
 	total     int
@@ -132,10 +132,10 @@ func (p *SimpleProgress) Update(current int) {
 		color.HiWhiteString("%d/%d (%d%%)", current, p.total, int(progress*100)),
 	)
 	fmt.Print(output)
-	p.lastWidth = len(output) + 20 // Compensation pour les codes ANSI
+	p.lastWidth = len(output) + 20 // Compensation for ANSI codes
 }
 
-// Ajouter une constante pour les patterns à exclure par défaut
+// Add a constant for default exclude patterns
 var defaultExcludes = []string{
 	".git/",
 	".git/*",
@@ -147,7 +147,7 @@ var defaultExcludes = []string{
 	"*.dylib",
 }
 
-// Cache pour les fichiers déjà traités
+// Cache for already processed files
 type FileCache struct {
 	sync.RWMutex
 	cache map[string]string
@@ -174,7 +174,7 @@ func (fc *FileCache) Set(key, value string) {
 
 var fileCache = NewFileCache()
 
-// WorkerPool gère un pool de workers pour le traitement concurrent
+// WorkerPool manages a pool of workers for concurrent processing
 type WorkerPool struct {
 	workerCount int
 	jobs        chan WorkerJob
@@ -212,7 +212,7 @@ func (wp *WorkerPool) Start() {
 func (wp *WorkerPool) worker() {
 	defer wp.wg.Done()
 
-	// Réutilisation du buffer pour optimiser la mémoire
+	// Buffer reuse to optimize memory
 	buffer := make([]byte, 32*1024)
 
 	for job := range wp.jobs {
@@ -226,7 +226,7 @@ func (wp *WorkerPool) worker() {
 }
 
 func (wp *WorkerPool) processFile(rootDir, relPath string, buffer []byte) (string, error) {
-	// Vérifier le cache
+	// Check cache
 	if cached, ok := fileCache.Get(relPath); ok {
 		return cached, nil
 	}
@@ -243,7 +243,7 @@ func (wp *WorkerPool) processFile(rootDir, relPath string, buffer []byte) (strin
 	output.WriteString(fmt.Sprintf("File: %s\n", relPath))
 	output.WriteString("================================================\n")
 
-	// Utilisation du buffer réutilisable pour la lecture
+	// Using reusable buffer for reading
 	for {
 		n, err := file.Read(buffer)
 		if n > 0 {
@@ -291,15 +291,15 @@ func main() {
 		Name:    "pmp",
 		Usage:   "Generate a project prompt for AI",
 		Version: Version,
-		Description: `Prompt My Project (PMP) analyse votre projet et génère un prompt 
-formaté pour les assistants AI. Il permet d'exclure les fichiers binaires, 
-de respecter les règles .gitignore, et offre des options de filtrage avancées.
+		Description: `Prompt My Project (PMP) analyzes your project and generates a formatted
+prompt for AI assistants. It allows excluding binary files, respecting .gitignore rules,
+and offers advanced filtering options.
 
-Exemple d'utilisation:
-   pmp                            # Analyse le projet courant
-   pmp --include "*.go"           # Analyse uniquement les fichiers .go
-   pmp --exclude "test/*"         # Exclut les fichiers du dossier test
-   pmp --output ~/prompts         # Spécifie le dossier de sortie`,
+Usage examples:
+   pmp /path/to/project          # Analyze the specified project
+   pmp . --include "*.go"        # Analyze only .go files in the current project
+   pmp /path/project --exclude "test/*"  # Exclude files in the test folder
+   pmp /path/project --output ~/prompts  # Specify the output directory`,
 		Flags: []cli.Flag{
 			&cli.StringSliceFlag{
 				Name:    "exclude",
@@ -334,13 +334,16 @@ Exemple d'utilisation:
 			},
 		},
 		Action: func(c *cli.Context) error {
+			// If no argument is provided, display help and exit
+			if !c.Args().Present() {
+				return cli.ShowAppHelp(c)
+			}
+
+			// If an argument is provided, proceed with the analysis
 			startTime := time.Now()
 			var totalSize int64
 
-			dir := "."
-			if c.Args().Present() {
-				dir = c.Args().First()
-			}
+			dir := c.Args().First()
 
 			minSize, err := parseSize(c.String("min-size"))
 			if err != nil {
@@ -370,27 +373,27 @@ Exemple d'utilisation:
 				return fmt.Errorf("error collecting files: %w", err)
 			}
 
-			// Calculer la taille totale des fichiers
+			// Calculate the total size of files
 			for _, file := range files {
 				if info, err := os.Stat(filepath.Join(dir, file)); err == nil {
 					totalSize += info.Size()
 				}
 			}
 
-			// Création de l'arbre et de la structure
+			// Create tree and structure
 			rootName := filepath.Base(dir)
 			tree := buildTree(files, rootName)
 			structure := generateTreeOutput(tree)
 
-			// Variable contentBuilder pour stocker le contenu des fichiers
+			// contentBuilder variable to store the content of files
 			var contentBuilder strings.Builder
 
-			// Initialiser le pool de workers
+			// Initialize the worker pool
 			numWorkers := runtime.GOMAXPROCS(0) * 2
 			pool := NewWorkerPool(numWorkers)
 			pool.Start()
 
-			// Envoyer les jobs
+			// Send jobs
 			go func() {
 				for i, file := range files {
 					pool.jobs <- WorkerJob{
@@ -402,7 +405,7 @@ Exemple d'utilisation:
 				pool.Stop()
 			}()
 
-			// Collecter les résultats
+			// Collect results
 			results := make([]string, len(files))
 			progress := NewSimpleProgress(len(files))
 			completed := 0
@@ -417,34 +420,34 @@ Exemple d'utilisation:
 				progress.Update(completed)
 			}
 
-			fmt.Println() // Nouvelle ligne après la barre de progression
+			fmt.Println() // New line after progress bar
 
-			// Écriture des résultats dans l'ordre
+			// Write results in order
 			for _, content := range results {
 				if content != "" {
 					contentBuilder.WriteString(content)
 				}
 			}
 
-			// Contenu des fichiers
+			// File contents
 			promptContent := contentBuilder.String()
 
-			// Calculer les tokens
+			// Calculate tokens
 			tokenCount := estimateTokenCount(promptContent)
 
-			// Construction du prompt final amélioré
+			// Building the enhanced final prompt
 			var output strings.Builder
 
-			// Générer l'en-tête avec les statistiques en haut
+			// Generate the header with stats at the top
 			header := generatePromptHeader(files, totalSize, tokenCount, len(promptContent))
 			output.WriteString(header)
 
-			// Ajouter la structure du projet
+			// Add project structure
 			output.WriteString("PROJECT STRUCTURE:\n")
 			output.WriteString("-----------------------------------------------------\n\n")
 			output.WriteString(structure)
 
-			// Ajouter le contenu des fichiers
+			// Add file contents
 			output.WriteString("\n\nFILE CONTENTS:\n")
 			output.WriteString("-----------------------------------------------------\n")
 			output.WriteString(promptContent)
@@ -454,12 +457,12 @@ Exemple d'utilisation:
 			// Determine output directory
 			outputDir := c.String("output")
 			if outputDir == "" {
-				// Par défaut, créer un dossier "prompts" dans le projet analysé
+				// By default, create a "prompts" folder in the analyzed project
 				outputDir = filepath.Join(dir, "prompts")
 
-				// Ajouter "prompts/" au .gitignore s'il n'y est pas déjà
+				// Add "prompts/" to .gitignore if not already there
 				if err := ensureGitignoreEntry(dir, "prompts/"); err != nil {
-					fmt.Printf("Warning: impossible de mettre à jour .gitignore: %v\n", err)
+					fmt.Printf("Warning: unable to update .gitignore: %v\n", err)
 				}
 			}
 
@@ -541,8 +544,8 @@ func parseSize(sizeStr string) (int64, error) {
 	}
 }
 
-// collectFiles parcourt récursivement le projet pour collecter les fichiers
-// en respectant les patterns d'inclusion/exclusion et les limites de taille.
+// collectFiles recursively traverses the project to collect files
+// respecting inclusion/exclusion patterns and size limits.
 func collectFiles(rootDir string, includePatterns, excludePatterns []string, minSize, maxSize int64) ([]string, error) {
 	var files []string
 
@@ -630,8 +633,8 @@ func collectFiles(rootDir string, includePatterns, excludePatterns []string, min
 	return files, err
 }
 
-// buildTree construit une représentation arborescente du projet
-// à partir de la liste des fichiers collectés.
+// buildTree builds a tree representation of the project
+// from the collected files list.
 func buildTree(files []string, rootName string) *Directory {
 	root := &Directory{
 		Name:    rootName,
@@ -662,8 +665,8 @@ func buildTree(files []string, rootName string) *Directory {
 	return root
 }
 
-// generateTreeOutput génère une représentation textuelle de l'arborescence
-// du projet dans un format lisible.
+// generateTreeOutput generates a textual representation of the tree
+// structure of the project in a readable format.
 func generateTreeOutput(root *Directory) string {
 	var output strings.Builder
 	output.WriteString(fmt.Sprintf("└── %s/\n", root.Name))
@@ -728,58 +731,58 @@ func loadGitignorePatterns(rootDir string) ([]string, error) {
 func ensureGitignoreEntry(projectDir, entry string) error {
 	gitignorePath := filepath.Join(projectDir, ".gitignore")
 
-	// Lire le contenu existant ou créer un nouveau fichier
+	// Read existing content or create a new file
 	var content string
 	if data, err := os.ReadFile(gitignorePath); err == nil {
 		content = string(data)
 
-		// Vérifier si l'entrée existe déjà
+		// Check if the entry already exists
 		lines := strings.Split(content, "\n")
 		for _, line := range lines {
 			if strings.TrimSpace(line) == strings.TrimSpace(entry) {
-				return nil // Déjà présent
+				return nil // Already present
 			}
 		}
 
-		// Ajouter une nouvelle ligne si nécessaire
+		// Add a new line if necessary
 		if !strings.HasSuffix(content, "\n") {
 			content += "\n"
 		}
 	}
 
-	// Ajouter la nouvelle entrée
+	// Add the new entry
 	content += entry + "\n"
 
-	// Écrire le fichier
+	// Write the file
 	return os.WriteFile(gitignorePath, []byte(content), 0644)
 }
 
 func estimateTokenCount(text string) int {
-	// Estimation simple : 1 token ≈ 4 caractères
+	// Simple estimation: 1 token ≈ 4 characters
 	return int(math.Ceil(float64(len(text)) / 4.0))
 }
 
 func printStatistics(stats ProcessStats) {
 	fmt.Println()
-	headerColor.Println("\n📊 Rapport de génération")
+	headerColor.Println("\n📊 Generation Report")
 	fmt.Println(strings.Repeat("─", 50))
 
 	successColor.Print("✓ ")
-	fmt.Printf("Fichier sauvegardé: %s\n", infoColor.Sprint(stats.outputPath))
+	fmt.Printf("File saved: %s\n", infoColor.Sprint(stats.outputPath))
 
-	fmt.Println("\n📈 Statistiques:")
-	fmt.Printf("  • Durée: %s\n", infoColor.Sprintf("%.5f secondes", stats.duration.Seconds()))
-	fmt.Printf("  • Fichiers traités: %s\n", successColor.Sprintf("%d", stats.fileCount))
-	fmt.Printf("  • Taille totale: %s\n", infoColor.Sprintf("%s", humanize.Bytes(uint64(stats.totalSize))))
-	fmt.Printf("  • Tokens estimés: %s\n", successColor.Sprintf("%d", stats.tokenCount))
-	fmt.Printf("  • Caractères: %s\n", infoColor.Sprintf("%d", stats.charCount))
-	fmt.Printf("  • Moyenne: %s par fichier\n", infoColor.Sprintf("%s", humanize.Bytes(uint64(stats.totalSize/int64(stats.fileCount)))))
-	fmt.Printf("  • Vitesse: %s\n", successColor.Sprintf("%.2f fichiers/sec", float64(stats.fileCount)/stats.duration.Seconds()))
+	fmt.Println("\n📈 Statistics:")
+	fmt.Printf("  • Duration: %s\n", infoColor.Sprintf("%.5f seconds", stats.duration.Seconds()))
+	fmt.Printf("  • Files processed: %s\n", successColor.Sprintf("%d", stats.fileCount))
+	fmt.Printf("  • Total size: %s\n", infoColor.Sprintf("%s", humanize.Bytes(uint64(stats.totalSize))))
+	fmt.Printf("  • Estimated tokens: %s\n", successColor.Sprintf("%d", stats.tokenCount))
+	fmt.Printf("  • Characters: %s\n", infoColor.Sprintf("%d", stats.charCount))
+	fmt.Printf("  • Average: %s per file\n", infoColor.Sprintf("%s", humanize.Bytes(uint64(stats.totalSize/int64(stats.fileCount)))))
+	fmt.Printf("  • Speed: %s\n", successColor.Sprintf("%.2f files/sec", float64(stats.fileCount)/stats.duration.Seconds()))
 
 	fmt.Println(strings.Repeat("─", 50))
 }
 
-// Nouvelle fonction pour collecter les extensions de fichiers
+// New function to collect file extensions
 func collectFileExtensions(files []string) map[string]int {
 	extensions := make(map[string]int)
 	for _, file := range files {
@@ -793,16 +796,16 @@ func collectFileExtensions(files []string) map[string]int {
 	return extensions
 }
 
-// Nouvelle fonction pour générer l'en-tête du prompt
+// New function to generate the prompt header
 func generatePromptHeader(files []string, totalSize int64, tokenCount int, charCount int) string {
 	var header strings.Builder
 
-	// Information sur le projet
+	// Project information
 	projectName := filepath.Base(filepath.Clean("."))
 	hostname, _ := os.Hostname()
 	currentTime := time.Now()
 
-	// Informations générales
+	// General information
 	header.WriteString("PROJECT INFORMATION\n")
 	header.WriteString("-----------------------------------------------------\n")
 	header.WriteString(fmt.Sprintf("• Project Name: %s\n", projectName))
@@ -812,14 +815,14 @@ func generatePromptHeader(files []string, totalSize int64, tokenCount int, charC
 	header.WriteString(fmt.Sprintf("• OS: %s/%s\n", runtime.GOOS, runtime.GOARCH))
 	header.WriteString("\n")
 
-	// Statistiques des fichiers
+	// File statistics
 	header.WriteString("FILE STATISTICS\n")
 	header.WriteString("-----------------------------------------------------\n")
 	header.WriteString(fmt.Sprintf("• Total Files: %d\n", len(files)))
 	header.WriteString(fmt.Sprintf("• Total Size: %s\n", humanize.Bytes(uint64(totalSize))))
 	header.WriteString(fmt.Sprintf("• Avg. File Size: %s\n", humanize.Bytes(uint64(totalSize/int64(max(1, len(files)))))))
 
-	// Extensions de fichiers
+	// File extensions
 	extensions := collectFileExtensions(files)
 	if len(extensions) > 0 {
 		header.WriteString("• File Types:\n")
@@ -832,19 +835,19 @@ func generatePromptHeader(files []string, totalSize int64, tokenCount int, charC
 		})
 
 		for i, ext := range extList {
-			if i < 10 { // Limiter à 10 extensions pour la lisibilité
+			if i < 10 { // Limit to 10 extensions for readability
 				header.WriteString(fmt.Sprintf("  - %s: %d files\n", ext, extensions[ext]))
 			} else {
 				break
 			}
 		}
 		if len(extList) > 10 {
-			header.WriteString(fmt.Sprintf("  - ...et %d autres types\n", len(extList)-10))
+			header.WriteString(fmt.Sprintf("  - ...and %d other types\n", len(extList)-10))
 		}
 	}
 	header.WriteString("\n")
 
-	// Statistiques de tokens
+	// Token statistics
 	header.WriteString("TOKEN STATISTICS\n")
 	header.WriteString("-----------------------------------------------------\n")
 	header.WriteString(fmt.Sprintf("• Estimated Token Count: %d\n", tokenCount))
