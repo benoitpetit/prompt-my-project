@@ -1,0 +1,20 @@
+# Binary files
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Go specific
+/bin/
+/vendor/
+
+# Output directories
+/dist/
+/build/
+
+# Go workspace file
+go.work
+
+# PMP specific project files
+/prompts/
