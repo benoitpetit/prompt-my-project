@@ -94,45 +94,106 @@ type Directory struct {
 // SimpleProgress represents a simple progress bar with mutex
 type SimpleProgress struct {
 	sync.Mutex
-	total     int
-	current   int
-	lastWidth int
+	total       int
+	current     int
+	lastWidth   int
+	width       int
+	startTime   time.Time
+	lastUpdate  time.Time
+	completed   bool
+	description string
 }
 
 func NewSimpleProgress(total int) *SimpleProgress {
 	return &SimpleProgress{
-		total:     total,
-		current:   0,
-		lastWidth: 0,
+		total:       total,
+		current:     0,
+		lastWidth:   0,
+		width:       40, // Largeur fixe de la barre à 40 caractères
+		startTime:   time.Now(),
+		lastUpdate:  time.Now(),
+		completed:   false,
+		description: "Processing files",
 	}
+}
+
+// SetDescription permet de définir le texte descriptif de la progression
+func (p *SimpleProgress) SetDescription(desc string) {
+	p.Lock()
+	defer p.Unlock()
+	p.description = desc
 }
 
 func (p *SimpleProgress) Update(current int) {
 	p.Lock()
 	defer p.Unlock()
 
+	// Ne pas mettre à jour trop souvent pour les gros fichiers (limiter à 10 rafraîchissements/sec)
+	now := time.Now()
+	if current < p.total && now.Sub(p.lastUpdate).Milliseconds() < 100 {
+		return
+	}
+	p.lastUpdate = now
+
+	// Mettre à jour le compteur
 	p.current = current
-	width := 40
-	progress := float64(current) / float64(p.total)
-	filled := int(float64(width) * progress)
+	percent := float64(current) / float64(p.total)
+	if current >= p.total && !p.completed {
+		p.completed = true
+	}
 
+	// Effacer entièrement la ligne précédente
 	if p.lastWidth > 0 {
-		fmt.Printf("\r%s\r", strings.Repeat(" ", p.lastWidth))
+		fmt.Print("\r")
+		fmt.Print(strings.Repeat(" ", p.lastWidth))
+		fmt.Print("\r")
 	}
 
-	bar := color.HiBlueString("[")
-	bar += color.GreenString(strings.Repeat("█", filled))
-	if filled < width {
-		bar += color.HiBlackString(strings.Repeat("░", width-filled))
-	}
-	bar += color.HiBlueString("]")
+	// Couleurs et styles
+	boxColor := color.New(color.FgHiBlue)
+	fillColor := color.New(color.FgGreen)
+	emptyColor := color.New(color.FgHiBlack)
+	textColor := color.New(color.FgHiWhite)
 
-	output := fmt.Sprintf("%s %s",
-		bar,
-		color.HiWhiteString("%d/%d (%d%%)", current, p.total, int(progress*100)),
-	)
-	fmt.Print(output)
-	p.lastWidth = len(output) + 20 // Compensation for ANSI codes
+	// Construire l'affichage de la barre
+	filled := int(float64(p.width) * percent)
+
+	// Barre avec bordures améliorées
+	bar := boxColor.Sprint("┃")
+	bar += fillColor.Sprint(strings.Repeat("█", filled))
+	if filled < p.width {
+		bar += emptyColor.Sprint(strings.Repeat("░", p.width-filled))
+	}
+	bar += boxColor.Sprint("┃")
+
+	// Informations de progression
+	progressText := textColor.Sprintf(" %d/%d (%d%%)", current, p.total, int(percent*100))
+
+	// Afficher la barre et le texte
+	fmt.Print("\r" + bar + progressText)
+	p.lastWidth = len(bar + progressText) + 20 // Marge pour les codes ANSI
+
+	// Ajouter un saut de ligne quand terminé
+	if p.completed {
+		fmt.Println()
+	}
+}
+
+// formatDuration permet un affichage lisible des durées
+func formatDuration(d time.Duration) string {
+	d = d.Round(time.Second)
+
+	if d.Hours() >= 1 {
+		h := int(d.Hours())
+		m := int(d.Minutes()) % 60
+		return fmt.Sprintf("%dh%dm", h, m)
+	} else if d.Minutes() >= 1 {
+		m := int(d.Minutes())
+		s := int(d.Seconds()) % 60
+		return fmt.Sprintf("%dm%ds", m, s)
+	} else {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
 }
 
 // Add a constant for default exclude patterns
@@ -345,6 +406,14 @@ Usage examples:
 
 			dir := c.Args().First()
 
+			// Convertir en chemin absolu pour garantir la cohérence
+			if !filepath.IsAbs(dir) {
+				absDir, err := filepath.Abs(dir)
+				if err == nil {
+					dir = absDir
+				}
+			}
+
 			minSize, err := parseSize(c.String("min-size"))
 			if err != nil {
 				return fmt.Errorf("invalid min-size: %w", err)
@@ -408,19 +477,25 @@ Usage examples:
 			// Collect results
 			results := make([]string, len(files))
 			progress := NewSimpleProgress(len(files))
+			progress.SetDescription("Processing files")
 			completed := 0
 
 			for result := range pool.results {
 				if result.err != nil {
-					fmt.Printf("\nWarning: error processing file: %v\n", result.err)
-					continue
+					// Sauvegarder la position actuelle
+					if progress.lastWidth > 0 {
+						fmt.Print("\r")
+						fmt.Print(strings.Repeat(" ", progress.lastWidth))
+						fmt.Print("\r")
+					}
+					fmt.Printf("Warning: error processing file: %v\n", result.err)
 				}
 				results[result.index] = result.content
 				completed++
 				progress.Update(completed)
 			}
 
-			fmt.Println() // New line after progress bar
+			// Le saut de ligne est déjà géré par la barre de progression quand elle est terminée
 
 			// Write results in order
 			for _, content := range results {
@@ -439,7 +514,7 @@ Usage examples:
 			var output strings.Builder
 
 			// Generate the header with stats at the top
-			header := generatePromptHeader(files, totalSize, tokenCount, len(promptContent))
+			header := generatePromptHeader(files, totalSize, tokenCount, len(promptContent), dir)
 			output.WriteString(header)
 
 			// Add project structure
@@ -456,12 +531,26 @@ Usage examples:
 
 			// Determine output directory
 			outputDir := c.String("output")
+			// fmt.Printf("Debug - Project directory: %s\n", dir)
 			if outputDir == "" {
 				// By default, create a "prompts" folder in the analyzed project
 				outputDir = filepath.Join(dir, "prompts")
+				// fmt.Printf("Debug - Output directory (default): %s\n", outputDir)
+			} else {
+				// Si un chemin relatif est fourni, le rendre absolu par rapport au projet analysé
+				if !filepath.IsAbs(outputDir) {
+					outputDir = filepath.Join(dir, outputDir)
+				}
+				// fmt.Printf("Debug - Output directory (specified): %s\n", outputDir)
+			}
 
-				// Add "prompts/" to .gitignore if not already there
-				if err := ensureGitignoreEntry(dir, "prompts/"); err != nil {
+			// Check if output directory is inside the analyzed project
+			// If so, add it to .gitignore
+			relPath, err := filepath.Rel(dir, outputDir)
+			if err == nil && !strings.HasPrefix(relPath, "..") {
+				// Output dir is inside the project, add to .gitignore
+				gitignoreEntry := strings.TrimPrefix(relPath, string(filepath.Separator))
+				if err := ensureGitignoreEntry(dir, gitignoreEntry); err != nil {
 					fmt.Printf("Warning: unable to update .gitignore: %v\n", err)
 				}
 			}
@@ -478,6 +567,8 @@ Usage examples:
 			if err := os.WriteFile(outputPath, []byte(finalPrompt), 0644); err != nil {
 				return fmt.Errorf("error writing output file: %w", err)
 			}
+
+			// fmt.Printf("Final prompt output path: %s\n", outputPath)
 
 			stats := ProcessStats{
 				startTime:  startTime,
@@ -513,9 +604,9 @@ func parseSize(sizeStr string) (int64, error) {
 			break
 		}
 	}
+
 	if i == 0 {
 		return 0, fmt.Errorf("no numeric part in size: %s", sizeStr)
-
 	}
 
 	numericPart := sizeStr[:i]
@@ -731,30 +822,62 @@ func loadGitignorePatterns(rootDir string) ([]string, error) {
 func ensureGitignoreEntry(projectDir, entry string) error {
 	gitignorePath := filepath.Join(projectDir, ".gitignore")
 
-	// Read existing content or create a new file
+	// Normalize entry - remove trailing slash if present
+	entry = strings.TrimSuffix(strings.TrimPrefix(entry, "/"), "/")
+
+	// Variable pour stocker le contenu
 	var content string
-	if data, err := os.ReadFile(gitignorePath); err == nil {
+
+	// Lire le contenu existant s'il existe
+	data, err := os.ReadFile(gitignorePath)
+	if err == nil {
+		// Le fichier existe, lire son contenu
 		content = string(data)
 
-		// Check if the entry already exists
+		// Vérifier si l'entrée existe déjà (avec ou sans slash)
 		lines := strings.Split(content, "\n")
 		for _, line := range lines {
-			if strings.TrimSpace(line) == strings.TrimSpace(entry) {
-				return nil // Already present
+			trimmedLine := strings.TrimSpace(line)
+			// Skip empty lines and comments
+			if trimmedLine == "" || strings.HasPrefix(trimmedLine, "#") {
+				continue
+			}
+
+			// Normalize line for comparison
+			normalizedLine := strings.TrimSuffix(strings.TrimPrefix(trimmedLine, "/"), "/")
+
+			// Check if entry already exists (with or without trailing slash)
+			if normalizedLine == entry ||
+				normalizedLine == entry+"/" ||
+				entry == normalizedLine+"/" {
+				return nil // Déjà présent
 			}
 		}
 
-		// Add a new line if necessary
+		// Ajouter une nouvelle ligne si nécessaire
 		if !strings.HasSuffix(content, "\n") {
 			content += "\n"
 		}
+	} else if os.IsNotExist(err) {
+		// Le fichier n'existe pas, créer un nouveau contenu avec un en-tête
+		content = "# Generated by Prompt My Project\n" +
+			"# Ignore output directory\n\n"
+	} else {
+		// Une autre erreur s'est produite
+		return fmt.Errorf("error reading .gitignore: %w", err)
 	}
 
-	// Add the new entry
-	content += entry + "\n"
+	// Ajouter la nouvelle entrée avec slash à la fin pour indiquer un dossier
+	content += entry + "/\n"
 
-	// Write the file
-	return os.WriteFile(gitignorePath, []byte(content), 0644)
+	// Écrire le fichier
+	err = os.WriteFile(gitignorePath, []byte(content), 0644)
+	if err != nil {
+		return fmt.Errorf("error writing .gitignore: %w", err)
+	}
+
+	fmt.Printf("Updated %s: added '%s/'\n", gitignorePath, entry)
+	return nil
 }
 
 func estimateTokenCount(text string) int {
@@ -797,11 +920,11 @@ func collectFileExtensions(files []string) map[string]int {
 }
 
 // New function to generate the prompt header
-func generatePromptHeader(files []string, totalSize int64, tokenCount int, charCount int) string {
+func generatePromptHeader(files []string, totalSize int64, tokenCount int, charCount int, projectDir string) string {
 	var header strings.Builder
 
 	// Project information
-	projectName := filepath.Base(filepath.Clean("."))
+	projectName := filepath.Base(filepath.Clean(projectDir)) // INCORRECT: Using dir which is undefined here
 	hostname, _ := os.Hostname()
 	currentTime := time.Now()
 
@@ -833,7 +956,6 @@ func generatePromptHeader(files []string, totalSize int64, tokenCount int, charC
 		sort.Slice(extList, func(i, j int) bool {
 			return extensions[extList[i]] > extensions[extList[j]]
 		})
-
 		for i, ext := range extList {
 			if i < 10 { // Limit to 10 extensions for readability
 				header.WriteString(fmt.Sprintf("  - %s: %d files\n", ext, extensions[ext]))
@@ -853,7 +975,6 @@ func generatePromptHeader(files []string, totalSize int64, tokenCount int, charC
 	header.WriteString(fmt.Sprintf("• Estimated Token Count: %d\n", tokenCount))
 	header.WriteString(fmt.Sprintf("• Character Count: %d\n", charCount))
 	header.WriteString("\n")
-
 	header.WriteString("=====================================================\n\n")
 	return header.String()
 }

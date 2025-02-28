@@ -18,9 +18,6 @@
     <a href="https://github.com/benoitpetit/prompt-my-project/stargazers">
         <img src="https://img.shields.io/github/stars/benoitpetit/prompt-my-project" alt="GitHub Stars">
     </a>
-        <a href="https://github.com/benoitpetit/prompt-my-project/releases">
-        <img src="https://img.shields.io/badge/Version-1.0.0-blue.svg" alt="Version">
-    </a>
     <a href="https://golang.org/dl/">
         <img src="https://img.shields.io/badge/Go-%3E%3D%201.21-blue.svg" alt="Go Version">
     </a>
@@ -191,22 +188,11 @@ go mod tidy
 
 # Build
 ./scripts/build.sh
+
+# Run
+go run main.go [options] [path]
 ```
 
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🗑️ Uninstallation
-
-### macOS & Linux
-
-```bash
-/usr/local/bin/pmp
-```
-
-### Windows
-
-```powershell
-Remove-Item -Path "C:\Program Files\pmp" -Recurse
-```

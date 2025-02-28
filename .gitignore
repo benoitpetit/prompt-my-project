@@ -16,5 +16,5 @@
 # Go workspace file
 go.work
 
-# PMP specific project files
+# PMP specific
 /prompts/
