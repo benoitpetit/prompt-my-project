@@ -103,13 +103,13 @@ Example: `pmp_v1.0.0_linux_amd64.tar.gz`
 ### macOS & Linux
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/benoitpetit/prompt-my-project/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/benoitpetit/prompt-my-project/refs/heads/master/scripts/install.sh | bash
 ```
 
 ### Windows
 
 ```powershell
-irm https://raw.githubusercontent.com/benoitpetit/prompt-my-project/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/benoitpetit/prompt-my-project/refs/heads/master/scripts/install.ps1 | iex
 ```
 
 ## 🛠️ Usage
