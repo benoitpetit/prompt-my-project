@@ -135,12 +135,12 @@ pmp [options] [path]
 
 | Option           | Description                          |
 | ---------------- | ------------------------------------ |
-| `--include, -i`  | Include only files matching patterns |
-| `--exclude, -e`  | Exclude files matching patterns      |
+| `--include`  | Include only files matching patterns |
+| `--exclude`  | Exclude files matching patterns      |
 | `--min-size`     | Minimum file size (default: "1KB")   |
 | `--max-size`     | Maximum file size (default: "100MB") |
 | `--no-gitignore` | Ignore .gitignore file               |
-| `--output, -o`   | Output folder for prompt file        |
+| `--output`   | Output folder for prompt file        |
 | `--help`         | Display help                         |
 | `--version`      | Display version                      |
 
@@ -204,7 +204,7 @@ go run main.go [options] [path]
 
 ## 🛠️ Advanced Configuration
 
-### CI/CD Integration Example (GitLab)
+### CI/CD Integration Example
 
 ```yaml
 generate_ia_prompt:
