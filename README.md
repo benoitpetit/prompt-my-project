@@ -147,27 +147,36 @@ pmp [options] [path]
 ### Quick Examples
 
 ```bash
-# Analyze current project
-pmp
+# Analyze current directory
+pmp .
+
+# Analyze specific project path
+pmp /path/to/your/project
 
 # Filter by extensions
-pmp --include "*.go" --include "*.md"
+pmp --include "*.go" --include "*.md" /my/project
 
 # Exclude directories
-pmp --exclude "test/*" --exclude "vendor/*"
+pmp --exclude "test/*" --exclude "vendor/*" .
 
 # Specify output directory
-pmp --output ./prompts
+pmp --output ./prompts /workspace/my-app
 ```
 
 ## 🚄 Performance
 
 PMP uses an advanced concurrent processing system to optimize performance:
 
-- **Worker Pool**: Parallel file processing with a worker pool
-- **Optimized Memory**: Use of reusable buffers
-- **Smart Caching**: File content caching to avoid repeated reads
-- **Adaptive Concurrency**: Number of workers adapted to available system resources
+- **Worker Pool**: Parallel file processing with worker pools that adapt to system resources
+- **Optimized Memory**: Use of reusable buffers to minimize allocations
+- **Smart Caching**: File content and binary detection caching for faster processing
+- **Adaptive Concurrency**: Number of workers optimized based on available CPU cores
+
+Benefits include:
+
+- Up to 3x faster analysis with parallel processing
+- Reduced I/O operations through LRU cache strategy
+- Faster subsequent runs with binary detection caching
 
 ## 🔧 Building from source
 
@@ -191,6 +200,83 @@ go mod tidy
 
 # Run
 go run main.go [options] [path]
+```
+
+## 🛠️ Advanced Configuration
+
+### CI/CD Integration Example (GitLab)
+
+```yaml
+generate_ia_prompt:
+  stage: analysis
+  image: golang:1.21
+  script:
+    - curl -sSL https://raw.githubusercontent.com/benoitpetit/prompt-my-project/master/scripts/install.sh | bash
+    - pmp --output ./artifacts/prompts
+  artifacts:
+    paths:
+      - ./artifacts/prompts/
+```
+
+## ⚙️ Under the Hood
+
+### Concurrent Processing Architecture
+
+- **Worker Pool**: Uses an adaptive worker pool based on available system resources
+- **Smart Caching**: File content caching to avoid multiple reads
+- **Memory Management**: Use of reusable buffers for file analysis
+
+### Binary File Detection
+
+Combination of three methods for accurate identification:
+
+1. Extension analysis (.png, .exe, ..)
+2. MIME type verification
+3. Detection of non-text characters
+
+## 📋 Example Prompt Output
+
+```
+PROJECT INFORMATION
+-----------------------------------------------------
+• Project Name: prompt-my-project
+• Generated On: 2025-03-01 15:53:46
+• Generated with: Prompt My Project (PMP) v1.0.0
+• Host: master
+• OS: linux/amd64
+
+FILE STATISTICS
+-----------------------------------------------------
+• Total Files: 4
+• Total Size: 37 kB
+• Avg. File Size: 9.2 kB
+• File Types:
+  - .go: 1 files
+  - <no-extension>: 1 files
+  - .md: 1 files
+  - .sum: 1 files
+
+TOKEN STATISTICS
+-----------------------------------------------------
+• Estimated Token Count: 9318
+• Character Count: 37269
+
+=====================================================
+
+PROJECT STRUCTURE:
+-----------------------------------------------------
+
+└── prompt-my-project/
+    ├── LICENSE
+    ├── README.md
+    ├── go.sum
+    └── main.go
+
+
+FILE CONTENTS:
+-----------------------------------------------------
+... // content of list of files
+..
 ```
 
 ## 📄 License
