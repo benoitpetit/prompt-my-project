@@ -5,8 +5,15 @@ APP_NAME="pmp"
 BINARY_NAME=${APP_NAME}
 DIST_DIR="dist"
 
-# Obtenir la version depuis git ou utiliser la version par défaut
-VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "v1.0.0")
+# Déterminer la version suggérée depuis git ou utiliser la version par défaut
+SUGGESTED_VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "v1.0.1")
+
+# Demander à l'utilisateur quelle version builder
+echo -n "Version à builder [$SUGGESTED_VERSION]: "
+read USER_VERSION
+VERSION=${USER_VERSION:-$SUGGESTED_VERSION}  # Utiliser la saisie utilisateur ou la version suggérée si vide
+echo "Building version: $VERSION"
+
 # Note: Cette version peut inclure un préfixe 'v', qui sera inclus dans le nom du fichier
 # Les scripts d'installation sont configurés pour gérer les deux formats (avec ou sans 'v')
 
