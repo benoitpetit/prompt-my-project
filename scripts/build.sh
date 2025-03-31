@@ -6,7 +6,7 @@ BINARY_NAME=${APP_NAME}
 DIST_DIR="dist"
 
 # Déterminer la version suggérée depuis git ou utiliser la version par défaut
-SUGGESTED_VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "v1.0.1")
+SUGGESTED_VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "v1.0.2")
 
 # Demander à l'utilisateur quelle version builder
 echo -n "Version à builder [$SUGGESTED_VERSION]: "

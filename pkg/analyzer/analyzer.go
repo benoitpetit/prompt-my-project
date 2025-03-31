@@ -192,8 +192,11 @@ func (pa *ProjectAnalyzer) collectFiles() ([]string, error) {
 			return nil
 		}
 
-		if (pa.MinSize > 0 && info.Size() < pa.MinSize) ||
-			(pa.MaxSize > 0 && info.Size() > pa.MaxSize) {
+		if pa.MinSize > 0 && info.Size() < pa.MinSize {
+			return nil
+		}
+
+		if pa.MaxSize > 0 && info.Size() > pa.MaxSize {
 			return nil
 		}
 

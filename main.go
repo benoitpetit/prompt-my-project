@@ -27,6 +27,8 @@ import (
 	"github.com/benoitpetit/prompt-my-project/pkg/analyzer"
 	"github.com/benoitpetit/prompt-my-project/pkg/binary"
 	"github.com/benoitpetit/prompt-my-project/pkg/formatter"
+	"github.com/benoitpetit/prompt-my-project/pkg/utils"
+	"github.com/bmatcuk/doublestar/v4"
 	"github.com/dustin/go-humanize"
 	"github.com/fatih/color"
 	"github.com/urfave/cli/v2"
@@ -74,6 +76,11 @@ func parseSize(sizeStr string) (int64, error) {
 	sizeStr = strings.TrimSpace(sizeStr)
 	if len(sizeStr) == 0 {
 		return 0, fmt.Errorf("empty size string")
+	}
+
+	// Handle explicit '0' value
+	if sizeStr == "0" {
+		return 0, nil
 	}
 
 	// Find the numeric part
@@ -263,6 +270,34 @@ func detectFileLanguage(filename string) string {
 	}
 }
 
+// Fonction qui vérifie si un fichier correspond aux patterns d'inclusion/exclusion
+func matchesFilters(filePath string, includePatterns, excludePatterns []string) bool {
+	// Si des patterns d'inclusion sont spécifiés, le fichier doit correspondre à l'un d'eux
+	if len(includePatterns) > 0 {
+		isIncluded := false
+		for _, pattern := range includePatterns {
+			match, err := doublestar.Match(pattern, filePath)
+			if err == nil && match {
+				isIncluded = true
+				break
+			}
+		}
+		if !isIncluded {
+			return false
+		}
+	}
+
+	// Si des patterns d'exclusion sont spécifiés, le fichier ne doit correspondre à aucun d'eux
+	for _, pattern := range excludePatterns {
+		match, err := doublestar.Match(pattern, filePath)
+		if err == nil && match {
+			return false
+		}
+	}
+
+	return true
+}
+
 func main() {
 	// Initialize binary cache
 	binaryCache := binary.NewCache()
@@ -372,6 +407,36 @@ Usage examples:
 				}
 			}
 
+			// Check for min-size arg
+			var minSizeArg string
+			for i, arg := range os.Args {
+				if arg == "--min-size" {
+					if i+1 < len(os.Args) {
+						minSizeArg = os.Args[i+1]
+					}
+				}
+			}
+
+			// Check for include patterns in args
+			var includePatterns []string
+			for i, arg := range os.Args {
+				if arg == "--include" || arg == "-i" {
+					if i+1 < len(os.Args) && !strings.HasPrefix(os.Args[i+1], "-") {
+						includePatterns = append(includePatterns, os.Args[i+1])
+					}
+				}
+			}
+
+			// Check for exclude patterns in args
+			var excludePatterns []string
+			for i, arg := range os.Args {
+				if arg == "--exclude" || arg == "-e" {
+					if i+1 < len(os.Args) && !strings.HasPrefix(os.Args[i+1], "-") {
+						excludePatterns = append(excludePatterns, os.Args[i+1])
+					}
+				}
+			}
+
 			// Use the format override if available
 			format := c.String("format")
 			if formatOverride != "" {
@@ -389,9 +454,18 @@ Usage examples:
 			}
 
 			// Parse size limits
-			minSize, err := parseSize(c.String("min-size"))
-			if err != nil {
-				return fmt.Errorf("invalid min-size: %w", err)
+			minSizeStr := c.String("min-size")
+			var minSize int64
+			if minSizeArg == "0" {
+				minSize = 0
+			} else if minSizeStr == "0" {
+				minSize = 0
+			} else {
+				var err error
+				minSize, err = parseSize(minSizeStr)
+				if err != nil {
+					return fmt.Errorf("invalid min-size: %w", err)
+				}
 			}
 
 			maxSize, err := parseSize(c.String("max-size"))
@@ -409,8 +483,7 @@ Usage examples:
 				}
 			}
 
-			// Merge default excludes with user excludes and gitignore patterns
-			excludePatterns := c.StringSlice("exclude")
+			// Merge explicit excludes with default excludes
 			excludePatterns = append(excludePatterns, defaultExcludes...)
 
 			if !c.Bool("no-gitignore") {
@@ -500,14 +573,52 @@ Usage examples:
 				// For stdout format, generate content and send directly to stdout without stats
 				fmtr := formatter.NewFormatter(strings.ReplaceAll(format, "stdout", "json"), "", dir)
 
-				// Set data
+				// Recalculer les statistiques en fonction des fichiers réellement inclus
+				var totalSize int64
+				var tokenCount int
+				var charCount int
+				var includedFiles []formatter.FileInfo
+				tokenEstimator := utils.NewTokenEstimator()
+
+				// Add files and ensure inclusion/exclusion filters are respected
+				for _, filePath := range projectAnalyzer.Files {
+					// Double-check if the file matches the include/exclude patterns
+					if matchesFilters(filePath, includePatterns, excludePatterns) {
+						absPath := filepath.Join(dir, filePath)
+						fileInfo, err := os.Stat(absPath)
+						if err == nil {
+							content, _ := os.ReadFile(absPath)
+
+							// Calculate stats for filtered files
+							totalSize += fileInfo.Size()
+							charCount += len(content)
+							tokens, _ := tokenEstimator.EstimateFileTokens(absPath, true)
+							tokenCount += tokens
+
+							fileData := formatter.FileInfo{
+								Path:     filePath,
+								Size:     fileInfo.Size(),
+								Content:  string(content),
+								Language: detectFileLanguage(filePath),
+							}
+
+							// Ajoute le fichier au formateur
+							fmtr.AddFile(fileData)
+							includedFiles = append(includedFiles, fileData)
+						}
+					}
+				}
+
+				// Update statistics with correct filtered values
 				fmtr.SetStatistics(
-					stats.FileCount,
-					stats.TotalSize,
-					stats.TokenCount,
-					stats.CharCount,
+					len(includedFiles), // Nombre correct de fichiers inclus
+					totalSize,
+					tokenCount,
+					charCount,
 					stats.ProcessTime,
 				)
+
+				// Set metadata
 				fmtr.SetTechnologies(stats.Technologies)
 				fmtr.SetKeyFiles(stats.KeyFiles)
 				fmtr.SetIssues(stats.Issues)
@@ -519,21 +630,6 @@ Usage examples:
 					return fmt.Errorf("error generating project structure: %w", err)
 				}
 				fmtr.SetProjectStructure(structure)
-
-				// Add files
-				for _, filePath := range projectAnalyzer.Files {
-					absPath := filepath.Join(dir, filePath)
-					fileInfo, err := os.Stat(absPath)
-					if err == nil {
-						content, _ := os.ReadFile(absPath)
-						fmtr.AddFile(formatter.FileInfo{
-							Path:     filePath,
-							Size:     fileInfo.Size(),
-							Content:  string(content),
-							Language: detectFileLanguage(filePath),
-						})
-					}
-				}
 
 				// Get formatted content and output directly to stdout
 				content, err := fmtr.GetFormattedContent()
@@ -554,14 +650,52 @@ Usage examples:
 				// Get the formatter
 				fmtr := formatter.NewFormatter(format, outputDir, dir)
 
-				// Set data
+				// Recalculer les statistiques en fonction des fichiers réellement inclus
+				var totalSize int64
+				var tokenCount int
+				var charCount int
+				var includedFiles []formatter.FileInfo
+				tokenEstimator := utils.NewTokenEstimator()
+
+				// Add files and ensure inclusion/exclusion filters are respected
+				for _, filePath := range projectAnalyzer.Files {
+					// Double-check if the file matches the include/exclude patterns
+					if matchesFilters(filePath, includePatterns, excludePatterns) {
+						absPath := filepath.Join(dir, filePath)
+						fileInfo, err := os.Stat(absPath)
+						if err == nil {
+							content, _ := os.ReadFile(absPath)
+
+							// Calculate stats for filtered files
+							totalSize += fileInfo.Size()
+							charCount += len(content)
+							tokens, _ := tokenEstimator.EstimateFileTokens(absPath, true)
+							tokenCount += tokens
+
+							fileData := formatter.FileInfo{
+								Path:     filePath,
+								Size:     fileInfo.Size(),
+								Content:  string(content),
+								Language: detectFileLanguage(filePath),
+							}
+
+							// Ajoute le fichier au formateur
+							fmtr.AddFile(fileData)
+							includedFiles = append(includedFiles, fileData)
+						}
+					}
+				}
+
+				// Update statistics with correct filtered values
 				fmtr.SetStatistics(
-					stats.FileCount,
-					stats.TotalSize,
-					stats.TokenCount,
-					stats.CharCount,
+					len(includedFiles), // Nombre correct de fichiers inclus
+					totalSize,
+					tokenCount,
+					charCount,
 					stats.ProcessTime,
 				)
+
+				// Set metadata
 				fmtr.SetTechnologies(stats.Technologies)
 				fmtr.SetKeyFiles(stats.KeyFiles)
 				fmtr.SetIssues(stats.Issues)
@@ -573,21 +707,6 @@ Usage examples:
 					return fmt.Errorf("error generating project structure: %w", err)
 				}
 				fmtr.SetProjectStructure(structure)
-
-				// Add files
-				for _, filePath := range projectAnalyzer.Files {
-					absPath := filepath.Join(dir, filePath)
-					fileInfo, err := os.Stat(absPath)
-					if err == nil {
-						content, _ := os.ReadFile(absPath)
-						fmtr.AddFile(formatter.FileInfo{
-							Path:     filePath,
-							Size:     fileInfo.Size(),
-							Content:  string(content),
-							Language: detectFileLanguage(filePath),
-						})
-					}
-				}
 
 				// Write to file
 				outputPath, err := fmtr.WriteToFile()
