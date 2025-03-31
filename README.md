@@ -25,199 +25,46 @@
     </a>
 </div>
 
-## ✨ Features
+## Overview
 
-<div align="center">
-    <table>
-        <tr>
-            <td align="center">📂</td>
-            <td><strong>Smart Navigation</strong><br/>Recursively scans your project structure</td>
-            <td align="center">🔍</td>
-            <td><strong>Binary Detection</strong><br/>Intelligently identifies and avoids binary files</td>
-        </tr>
-        <tr>
-            <td align="center">🎯</td>
-            <td><strong>Pattern Matching</strong><br/>Supports advanced inclusion/exclusion patterns</td>
-            <td align="center">⚡</td>
-            <td><strong>Git-Aware</strong><br/>Respects your project's .gitignore rules</td>
-        </tr>
-        <tr>
-            <td align="center">📊</td>
-            <td><strong>Size Control</strong><br/>Flexible file size filtering options</td>
-            <td align="center">🚀</td>
-            <td><strong>High Performance</strong><br/>Concurrent processing with worker pools</td>
-        </tr>
-        <tr>
-            <td align="center">💾</td>
-            <td><strong>Smart Caching</strong><br/>Optimized file content caching</td>
-            <td align="center">📝</td>
-            <td><strong>Detailed Statistics</strong><br/>Comprehensive metrics about your project</td>
-        </tr>
-        <tr>
-            <td align="center">🔬</td>
-            <td><strong>Technology Detection</strong><br/>Automatically identifies used technologies</td>
-            <td align="center">🎯</td>
-            <td><strong>Key Files Analysis</strong><br/>Identifies most important project files</td>
-        </tr>
-        <tr>
-            <td align="center">⚠️</td>
-            <td><strong>Issue Detection</strong><br/>Identifies potential code quality issues</td>
-            <td align="center">📊</td>
-            <td><strong>Complexity Metrics</strong><br/>Advanced code complexity analysis</td>
-        </tr>
-        <tr>
-            <td align="center">🔄</td>
-            <td><strong>Multiple Output Formats</strong><br/>Export as TXT, JSON, or XML with full content</td>
-            <td align="center">🔌</td>
-            <td><strong>API Integration</strong><br/>Structured formats for programmatic use</td>
-        </tr>
-    </table>
-</div>
+PMP analyzes your codebase and generates comprehensive, structured prompts optimized for AI assistants like ChatGPT, Claude, or Gemini. It extracts key information, detects technologies, and formats output to maximize the context provided to AI tools.
 
-## 🧠 Advanced Features
+## ✨ Key Features
 
-### Binary Detection Cache
-
-PMP maintains a persistent cache of binary file detection results to improve performance:
-- Cache stored in `~/.pmp/cache/binary_cache.json`
-- Uses file metadata (size, modification time) for cache keys
-- Automatically handles cache invalidation
-- Falls back to temporary directory if home directory is unavailable
-
-### Smart Token Estimation
-
-The token estimator uses a sophisticated algorithm that:
-- Differentiates between code and text content (4 chars/token for code, 5 for text)
-- Applies special weights to syntax characters (brackets, newlines, etc.)
-- Streams large files to avoid memory issues
-- Provides accurate estimates for AI model context limits
-
-### Intelligent Technology Detection
-
-- Automatically identifies programming languages and frameworks
-- Uses both file extensions and specific configuration files
-- Detects common tools and CI/CD setups
-- Provides insights about project stack
-
-### Code Complexity Analysis
-
-Performs advanced static analysis:
-- File size and line count distribution
-- Directory depth analysis (flags >5 levels deep)
-- Code modularity metrics (flags files >100KB)
-- Identifies potential maintenance issues (files >500 lines)
-
-### Error Handling
-
-- Automatic retry system for problematic files
-- Smart backoff strategy (100ms delay between attempts)
-- Size-based retry limits (max 1MB for retry attempts)
-- Maximum 3 retry attempts per file
-- Graceful degradation for large files
-
-### Performance Optimizations
-
-- Concurrent file processing with worker pools
-- Memory-efficient streaming for large files
-- Smart caching of file contents and binary detection
-- Adaptive file display limits for large directories
-- Efficient tree structure generation
-
-## 🔧 Default Configuration
-
-| Parameter      | Value     | Description                  |
-| ------------- | --------- | ---------------------------- |
-| Min Size      | 1KB       | Minimum file size            |
-| Max Size      | 100MB     | Maximum file size            |
-| Output Dir    | ./prompts | Output directory for prompts |
-| GitIgnore     | true      | Respect .gitignore rules     |
-| Workers       | CPU cores | Number of parallel workers   |
-| Max Files     | 500       | Maximum number of files      |
-| Max Total Size| 10MB      | Maximum total project size   |
-| Retry Limit   | 1MB       | Maximum file size for retries|
-| Progress Bar  | 40 chars  | Width of progress indicator  |
-| Output Format | txt       | Output format (txt/json/xml) |
-
-## 📂 Output Organization
-
-PMP generates a well-structured prompt file that includes:
-
-- Project information and statistics
-- Complete file structure visualization
-- Formatted file contents
-- Token and character count estimates
-
-Prompts are automatically saved in:
-
-- `./prompts/` (default, automatically added to .gitignore)
-- Or in the folder specified by `--output`
-
-Files are named using a timestamp format: `prompt_YYYYMMDD_HHMMSS.txt`
-
-## 🎯 Build Artifacts
-
-Format: `pmp_<version>_<os>_<arch>.<ext>`
-Example: `pmp_v1.0.0_linux_amd64.tar.gz`
-
-### Supported Architectures
-
-- amd64 (x86_64)
-- arm64 (aarch64)
-
-### Supported Systems
-
-- Linux (.tar.gz)
-- macOS/Darwin (.tar.gz)
-- Windows (.zip)
-
-### Build Process
-
-The build script:
-- Automatically detects version from git tags
-- Generates binaries for all supported platforms
-- Creates compressed archives (.tar.gz for Unix, .zip for Windows)
-- Includes README and LICENSE in each archive
-- Generates SHA-256 checksums for all artifacts
-
-Build artifacts are placed in the `dist` directory:
-```
-dist/
-├── pmp_v1.0.0_linux_amd64.tar.gz
-├── pmp_v1.0.0_linux_arm64.tar.gz
-├── pmp_v1.0.0_darwin_amd64.tar.gz
-├── pmp_v1.0.0_darwin_arm64.tar.gz
-├── pmp_v1.0.0_windows_amd64.zip
-├── pmp_v1.0.0_windows_arm64.zip
-└── checksums.txt
-```
+- 📂 **Smart Project Analysis**: Recursively scans your project structure with binary detection and .gitignore support
+- 🎯 **Flexible Filtering**: Advanced pattern matching for including or excluding specific files and directories
+- 📊 **Comprehensive Statistics**: File counts, size distribution, and token estimation for AI models
+- 🔬 **Technology Detection**: Automatically identifies programming languages and frameworks used
+- 📝 **Multiple Output Formats**: Export as TXT, JSON, or XML with detailed project information
+- 🚀 **High Performance**: Concurrent processing with smart caching and memory management
 
 ## 🚀 Installation
 
-### macOS & Linux
+### Using Go Install (New!)
+
+The simplest method if you have Go installed:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/benoitpetit/prompt-my-project/refs/heads/master/scripts/install.sh | bash
+go install github.com/benoitpetit/prompt-my-project@latest
 ```
 
-### Windows
+### Script Installation
 
-```powershell
-irm https://raw.githubusercontent.com/benoitpetit/prompt-my-project/refs/heads/master/scripts/install.ps1 | iex
-```
-
-## 🗑️ Uninstallation
-
-### macOS & Linux
-
+#### macOS & Linux
 ```bash
-curl -fsSL https://raw.githubusercontent.com/benoitpetit/prompt-my-project/refs/heads/master/scripts/remove.sh | bash
+curl -fsSL https://raw.githubusercontent.com/benoitpetit/prompt-my-project/master/scripts/install.sh | bash
 ```
 
-### Windows
-
+#### Windows
 ```powershell
-irm https://raw.githubusercontent.com/benoitpetit/prompt-my-project/refs/heads/master/scripts/remove.ps1 | iex
+irm https://raw.githubusercontent.com/benoitpetit/prompt-my-project/master/scripts/install.ps1 | iex
 ```
+
+### Manual Installation
+
+1. Download the latest release from [GitHub Releases](https://github.com/benoitpetit/prompt-my-project/releases)
+2. Extract the archive
+3. Move the binary to a location in your PATH
 
 ## 🛠️ Usage
 
@@ -225,6 +72,28 @@ irm https://raw.githubusercontent.com/benoitpetit/prompt-my-project/refs/heads/m
 
 ```bash
 pmp [options] [path]
+```
+
+### Common Commands
+
+```bash
+# Analyze current directory
+pmp .
+
+# Analyze specific project
+pmp /path/to/project
+
+# Include only specific file types
+pmp . -i "*.go" -i "*.md"
+
+# Exclude test files and vendor directory
+pmp . -e "test/*" -e "vendor/*"
+
+# Generate JSON output
+pmp . --format json
+
+# Specify output directory
+pmp . -o ~/prompts
 ```
 
 ### Available Options
@@ -238,108 +107,54 @@ pmp [options] [path]
 | `--no-gitignore` | -     | Ignore .gitignore file              | false |
 | `--output`       | `-o`  | Output folder for prompt file        | ./prompts |
 | `--workers`      | -     | Number of parallel workers           | CPU cores |
-| `--max-files`    | -     | Maximum number of files (0 = unlimited) | 500 |
-| `--max-total-size` | -   | Maximum total size (0 = unlimited)   | 10MB |
+| `--max-files`    | -     | Maximum number of files              | 500 |
+| `--max-total-size` | -   | Maximum total size                   | 10MB |
 | `--format`       | `-f`  | Output format (txt, json, or xml)    | txt |
 | `--help`         | -     | Display help                         | - |
 | `--version`      | -     | Display version                      | - |
 
-### Pattern Examples
+## 📋 Output Formats
 
-- `*.go` - All Go files
-- `src/` - All files in src directory
-- `test/*` - All files in test directory
-- `*.{js,ts}` - All JavaScript and TypeScript files
-- `!vendor/*` - Exclude all files in vendor directory
+PMP supports three output formats, each designed for different use cases:
 
-### Quick Examples
+### Text Format (Default)
+Human-readable, formatted text optimized for direct use with AI assistants. Includes project structure, file contents, and comprehensive statistics.
+
+### JSON Format
+Structured data format for programmatic processing and integration with other tools. Perfect for CI/CD pipelines and custom analysis tools.
 
 ```bash
-# Analyze current directory
-pmp .
-
-# Analyze specific project path
-pmp /path/to/your/project
-
-# Generate JSON output
 pmp . --format json
-
-# Generate XML output
-pmp . --format xml
-
-# Filter by file types
-pmp . -i "*.go" -i "*.md"
-
-# Exclude test files and vendor directory
-pmp . -e "test/*" -e "vendor/*"
-
-# Customize size limits
-pmp . --min-size 500B --max-size 1MB
-
-# Control total project size
-pmp . --max-total-size 50MB --max-files 1000
-
-# Specify output directory
-pmp . -o ~/prompts
-
-# Ignore .gitignore rules
-pmp . --no-gitignore
-
-# Adjust worker count
-pmp . --workers 4
-
-# Combine multiple options
-pmp . -i "*.{js,ts}" -e "node_modules/*" --max-size 500KB -o ./analysis
 ```
 
-## 🚄 Performance
+### XML Format
+Hierarchical format for integration with enterprise systems and XML-based tools.
 
-PMP uses several optimization strategies to maximize performance:
+```bash
+pmp . --format xml
+```
 
-### Concurrent Processing
+## 📊 Output Content
 
-- Adaptive worker pool based on available CPU cores
-- Parallel file processing with efficient memory management
-- Real-time progress tracking with refresh rate limiting
-- Intelligent error handling with retry mechanism
+The generated prompt includes:
 
-### Memory Management
+- Project information and statistics
+- Detected technologies and frameworks
+- Key files for understanding the project
+- Complete file structure visualization
+- Formatted file contents
+- Token and character count estimates
+- Code quality metrics and suggestions
 
-- Reusable buffers for file reading
-- Large file streaming to avoid memory saturation
-- Configurable size limits for individual files and total
-- Automatic cleanup of temporary files
+## 🧠 Advanced Features
 
-### Caching System
+- **Binary Detection**: Automatically identifies and excludes binary files
+- **Smart Token Estimation**: Accurate prediction of token usage for AI models
+- **Technology Detection**: Identifies programming languages and frameworks
+- **Code Complexity Analysis**: Flags potential maintenance issues
+- **Intelligent Caching**: Improves performance with smart file content caching
 
-- Persistent cache for binary file detection
-- File content caching to avoid multiple reads
-- Cache keys based on file metadata
-- Automatic fallback to temporary cache when needed
-
-### Display Optimizations
-
-- Adaptive limits on displayed files per directory
-- Progressive verbosity reduction for large directories
-- Optimized progress bar with throttled updates
-- Intelligent formatting of durations and sizes
-
-### Limits and Thresholds
-
-- Maximum file size for retries: 1MB
-- Delay between retries: 100ms
-- Maximum retries: 3
-- Maximum size for complexity analysis: 5MB
-- Maximum size for line counting: 10MB
-
-## 🔧 Building from source
-
-### Prerequisites
-
-- Go 1.21 or higher
-- Git
-
-### Build Steps
+## 🛠️ Building from Source
 
 ```bash
 # Clone repository
@@ -352,299 +167,20 @@ go mod tidy
 # Build
 ./scripts/build.sh
 
-# Run
-go run main.go [options] [path]
+# Or build with go directly
+go build -o pmp
 ```
 
-## 🛠️ Advanced Configuration
+## 🗑️ Uninstallation
 
-### CI/CD Integration Example
-
-```yaml
-generate_ia_prompt:
-  stage: analysis
-  image: golang:1.21
-  script:
-    - curl -sSL https://raw.githubusercontent.com/benoitpetit/prompt-my-project/master/scripts/install.sh | bash
-    - pmp --output ./artifacts/prompts
-  artifacts:
-    paths:
-      - ./artifacts/prompts/
-```
-
-## ⚙️ Under the Hood
-
-### Concurrent Processing Architecture
-
-- **Worker Pool**: Uses an adaptive worker pool based on available system resources
-- **Smart Caching**: File content caching to avoid multiple reads
-- **Memory Management**: Use of reusable buffers for file analysis
-
-### Binary File Detection
-
-Combination of three methods for accurate identification:
-
-1. Extension analysis (.png, .exe, ..)
-2. MIME type verification
-3. Detection of non-text characters
-
-### Advanced Analysis Features
-
-- **Technology Detection**: Automatically identifies programming languages, frameworks, and tools used in your project based on file extensions and specific configuration files.
-- **Key Files Analysis**: Identifies the most important files in your project based on:
-  - Common important filenames (main.go, index.js, etc.)
-  - Location in project structure (root level, src/, etc.)
-  - File type and purpose (configuration, documentation, etc.)
-- **Code Quality Analysis**: Detects potential issues such as:
-  - Large files (>100KB) that might need modularization
-  - Long files (>500 lines) that might be hard to maintain
-  - Deeply nested directories (>5 levels) suggesting complex structure
-- **Complexity Metrics**: Provides advanced code analysis:
-  - Total and average lines of code
-  - File size distribution and percentiles
-  - Extension-based statistics with percentages
-  - Technology usage breakdown
-
-### Token Estimation
-
-PMP uses a sophisticated token estimation system that:
-- Differentiates between code and text content
-- Accounts for special characters and syntax
-- Provides accurate token counts for AI model context limits
-- Uses efficient streaming for large files
-
-## 📋 Example Prompt Output 
-
-PMP supports three output formats:
-
-### TXT format
-
-```text
-PROJECT INFORMATION
------------------------------------------------------
-• Project Name: prompt-my-project
-• Generated On: 2025-03-13 22:30:40
-• Generated with: Prompt My Project (PMP) v1.0.0
-• Host: bigmaster
-• OS: linux/amd64
-
-DETECTED TECHNOLOGIES
------------------------------------------------------
-• Go
-• Go Modules
-
-KEY FILES
------------------------------------------------------
-These files are likely the most important for understanding the project:
-• LICENSE
-• README.md
-• go.sum
-• main.go
-
-POINTS OF INTEREST
------------------------------------------------------
-These elements may deserve special attention during analysis:
-• 25.0% of files (1) contain more than 500 lines, which can make the code difficult to maintain
-
-FILE STATISTICS
------------------------------------------------------
-• Total Files: 4
-• Total Size: 75 kB
-• Avg. File Size: 19 kB
-• Total Lines of Code: 2495
-• Avg. Lines per File: 623
-• Median Lines per File: 352
-• 90% of files have fewer than 2078 lines
-• Top Extensions by Size:
-  - .go: 59 kB
-  - .md: 11 kB
-  - .sum: 4.0 kB
-• File Types:
-  - <no-extension>: 1 files (25.0%)
-  - .md: 1 files (25.0%)
-  - .sum: 1 files (25.0%)
-  - .go: 1 files (25.0%)
-
-ANALYSIS SUGGESTIONS
------------------------------------------------------
-When analyzing this project, consider the following approaches:
-• For a project using Go, Go Modules, examine the typical patterns and practices of these technologies
-• Start by analyzing the identified key files, which likely contain the main logic
-• Pay special attention to the identified points of interest, which may reveal problems or opportunities for improvement
-• The project contains large files. Look for opportunities for modularization and separation of responsibilities
-• Look for design patterns used and evaluate if they are implemented effectively
-• Identify potential areas of technical debt or optimization
-
-TOKEN STATISTICS
------------------------------------------------------
-• Estimated Token Count: 23992
-• Character Count: 75537
-
-=====================================================
-
-PROJECT STRUCTURE:
------------------------------------------------------
-
-└── prompt-my-project (4 files)
-    ├── LICENSE
-    ├── README.md
-    ├── go.sum
-    └── main.go
-
-FILE CONTENTS:
------------------------------------------------------
-
-================================================
-File: LICENSE
-================================================
-MIT License
-
-Copyright (c) 2025 [Benoît PETIT]
-
-Permission is hereby granted, free of char....
-```
-
-### JSON Format
-Structured output in JSON format, perfect for programmatic processing:
-
-```json
-{
-  "project_info": {
-    "name": "my-project",
-    "generated_at": "2025-03-13T22:30:40Z",
-    "generator": "Prompt My Project (PMP) v1.0.0",
-    "host": "hostname",
-    "os": "linux/amd64"
-  },
-  "technologies": ["Go", "Go Modules"],
-  "key_files": ["main.go", "README.md"],
-  "issues": [
-    "25.0% of files (1) contain more than 500 lines, which can make the code difficult to maintain"
-  ],
-  "statistics": {
-    "file_count": 4,
-    "total_size": 75000,
-    "total_size_human": "75 kB",
-    "avg_file_size": 18750,
-    "token_count": 23992,
-    "char_count": 75537,
-    "files_per_second": 12.5
-  },
-  "file_types": [
-    {
-      "extension": ".go",
-      "count": 1
-    },
-    {
-      "extension": ".md",
-      "count": 1
-    }
-  ],
-  "files": [
-    {
-      "path": "main.go",
-      "size": 25000,
-      "content": "package main\n\nimport ...",
-      "language": "Go"
-    },
-    {
-      "path": "README.md",
-      "size": 15000,
-      "content": "# My Project\n\nDescription...",
-      "language": "Markdown"
-    }
-  ]
-}
-```
-
-### XML Format
-Structured output in XML format, suitable for integration with XML-based tools:
-
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<project>
-  <project_info>
-    <name>my-project</name>
-    <generated_at>2025-03-13T22:30:40Z</generated_at>
-    <generator>Prompt My Project (PMP) v1.0.0</generator>
-    <host>hostname</host>
-    <os>linux/amd64</os>
-  </project_info>
-  <technologies>
-    <technology>Go</technology>
-    <technology>Go Modules</technology>
-  </technologies>
-  <key_files>
-    <file>main.go</file>
-    <file>README.md</file>
-  </key_files>
-  <issues>
-    <issue>25.0% of files (1) contain more than 500 lines, which can make the code difficult to maintain</issue>
-  </issues>
-  <statistics>
-    <file_count>4</file_count>
-    <total_size>75000</total_size>
-    <total_size_human>75 kB</total_size_human>
-    <avg_file_size>18750</avg_file_size>
-    <token_count>23992</token_count>
-    <char_count>75537</char_count>
-    <files_per_second>12.5</files_per_second>
-  </statistics>
-  <file_types>
-    <type extension=".go">1</type>
-    <type extension=".md">1</type>
-  </file_types>
-  <files>
-    <file>
-      <path>main.go</path>
-      <size>25000</size>
-      <content>package main
-
-import ...</content>
-      <language>Go</language>
-    </file>
-    <file>
-      <path>README.md</path>
-      <size>15000</size>
-      <content># My Project
-
-Description...</content>
-      <language>Markdown</language>
-    </file>
-  </files>
-</project>
-```
-
-## 🔌 Format Use Cases
-
-Each output format serves different purposes:
-
-### Text Format (TXT)
-- **Best for**: Direct use with AI assistants like ChatGPT, Claude, or Gemini
-- **Advantages**: Human-readable, well-structured, easy to copy-paste
-- **Use when**: You want to quickly analyze a project with an AI assistant
-
-### JSON Format
-- **Best for**: Programmatic processing, data extraction, and integration with other tools
-- **Advantages**: Easy to parse, structured data, compatible with most programming languages
-- **Use when**: Building automation tools, integrating with CI/CD pipelines, or creating custom analysis tools
-
-### XML Format
-- **Best for**: Integration with enterprise systems and XML-based tools
-- **Advantages**: Hierarchical structure, compatible with XML processing tools
-- **Use when**: Working with systems that expect XML input or when using XSLT transformations
-
-### Integration Examples
-
+### macOS & Linux
 ```bash
-# Generate JSON and process with jq
-pmp . --format json | jq '.statistics.token_count'
+curl -fsSL https://raw.githubusercontent.com/benoitpetit/prompt-my-project/master/scripts/remove.sh | bash
+```
 
-# Generate XML and transform with XSLT
-pmp . --format xml > project.xml && xsltproc transform.xslt project.xml > report.html
-
-# Use in CI/CD pipeline
-pmp . --format json --output ./artifacts/analysis
+### Windows
+```powershell
+irm https://raw.githubusercontent.com/benoitpetit/prompt-my-project/master/scripts/remove.ps1 | iex
 ```
 
 ## 📄 License

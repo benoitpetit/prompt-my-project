@@ -1,8 +1,30 @@
 #!/bin/bash
 
+# Vérifier si Go est installé
+check_go_installation() {
+    if command -v go >/dev/null 2>&1; then
+        echo "Go est installé. Voulez-vous utiliser 'go install' pour une installation simplifiée ? (o/n)"
+        read -r answer
+        if [[ "$answer" =~ ^[oO]$ ]]; then
+            echo "Installation avec Go..."
+            if go install github.com/benoitpetit/prompt-my-project@latest; then
+                echo "✅ Installation réussie avec go install!"
+                exit 0
+            else
+                echo "❌ Échec de l'installation avec go install. Tentative d'installation alternative..."
+            fi
+        else
+            echo "Installation standard sélectionnée..."
+        fi
+    fi
+}
+
 # Dependencies check
 command -v curl >/dev/null 2>&1 || { echo "Error: curl is required" >&2; exit 1; }
 command -v tar >/dev/null 2>&1 || { echo "Error: tar is required" >&2; exit 1; }
+
+# Check if Go is installed and offer go install method
+check_go_installation
 
 # Internet and GitHub connectivity check
 echo "Checking GitHub connection..."

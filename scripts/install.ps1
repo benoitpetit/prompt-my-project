@@ -1,3 +1,32 @@
+# Fonction pour vérifier si Go est installé et proposer go install
+function Check-GoInstallation {
+    $goCommand = Get-Command go -ErrorAction SilentlyContinue
+    if ($goCommand) {
+        Write-Host "Go est installé. Voulez-vous utiliser 'go install' pour une installation simplifiée ? (O/N)" -ForegroundColor Cyan
+        $answer = Read-Host
+        if ($answer -eq "O" -or $answer -eq "o") {
+            Write-Host "Installation avec Go..." -ForegroundColor Yellow
+            try {
+                go install github.com/benoitpetit/prompt-my-project@latest
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Host "✅ Installation réussie avec go install!" -ForegroundColor Green
+                    exit 0
+                } else {
+                    Write-Host "❌ Échec de l'installation avec go install. Tentative d'installation alternative..." -ForegroundColor Red
+                }
+            } catch {
+                Write-Host "❌ Erreur lors de l'installation avec go install: $_" -ForegroundColor Red
+                Write-Host "Tentative d'installation alternative..." -ForegroundColor Yellow
+            }
+        } else {
+            Write-Host "Installation standard sélectionnée..." -ForegroundColor Yellow
+        }
+    }
+}
+
+# Vérifier si Go est installé et proposer la méthode go install
+Check-GoInstallation
+
 # Configuration
 $repo = "benoitpetit/prompt-my-project"
 $binaryName = "pmp"
@@ -186,3 +215,18 @@ Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
 
 Write-Host "✅ Installation complete! Please restart your terminal to use 'pmp'"
 Write-Host "Use 'pmp --help' to see available options."
+
+# Vérifier les dépendances
+function Test-CommandExists {
+    param ($command)
+    $oldPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'stop'
+    try { if (Get-Command $command) { return $true } }
+    catch { return $false }
+    finally { $ErrorActionPreference = $oldPreference }
+}
+
+# Vérifier si curl est disponible
+if (-not (Test-CommandExists "curl")) {
+    Write-Host "L'outil curl n'est pas disponible. Utilisation des cmdlets PowerShell à la place." -ForegroundColor Yellow
+}
