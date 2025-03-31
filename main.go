@@ -33,7 +33,7 @@ import (
 
 // Global configuration
 const (
-	Version   = "1.0.0"
+	Version   = "1.0.2"
 	GoVersion = "1.21"
 )
 
