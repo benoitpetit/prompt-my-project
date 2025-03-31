@@ -10,7 +10,6 @@ import (
 
 	"github.com/benoitpetit/prompt-my-project/pkg/binary"
 	"github.com/benoitpetit/prompt-my-project/pkg/formatter"
-	"github.com/benoitpetit/prompt-my-project/pkg/progress"
 	"github.com/benoitpetit/prompt-my-project/pkg/utils"
 	"github.com/benoitpetit/prompt-my-project/pkg/worker"
 	"github.com/bmatcuk/doublestar/v4"
@@ -134,9 +133,6 @@ func (pa *ProjectAnalyzer) collectFiles() ([]string, error) {
 		matcher = gitignore.NewMatcher(patterns)
 	}
 
-	// Create a progress bar
-	pg := progress.New(0)
-	pg.SetDescription("Collecting files")
 	fileCount := 0
 
 	// Walk the directory tree
@@ -153,8 +149,7 @@ func (pa *ProjectAnalyzer) collectFiles() ([]string, error) {
 
 		// Skip directories
 		if d.IsDir() {
-			fileCount += 10 // Rough estimate for progress bar
-			pg.Update(fileCount)
+			fileCount += 10 // Rough estimate for file counting
 
 			// Check exclude patterns for directories
 			if matcher != nil && matcher.Match(strings.Split(relPath, string(filepath.Separator)), d.IsDir()) {
@@ -163,11 +158,8 @@ func (pa *ProjectAnalyzer) collectFiles() ([]string, error) {
 			return nil
 		}
 
-		// Update progress
+		// Update count
 		fileCount++
-		if fileCount%100 == 0 {
-			pg.Update(fileCount)
-		}
 
 		// Skip files that don't match include patterns
 		if len(pa.IncludePatterns) > 0 {
@@ -212,9 +204,6 @@ func (pa *ProjectAnalyzer) collectFiles() ([]string, error) {
 		return nil
 	})
 
-	// Complete the progress bar
-	pg.Update(fileCount)
-
 	// Save binary cache
 	if err := pa.BinaryCache.Save(); err != nil {
 		fmt.Printf("Warning: error saving binary cache: %v\n", err)
@@ -247,10 +236,6 @@ func (pa *ProjectAnalyzer) ProcessFiles(outputDir string, format string) (StatsR
 	keyFiles := identifyKeyFiles(pa.Files)
 	issues := identifyPotentialIssues(pa.Files)
 	fileTypes := collectFileExtensions(pa.Files)
-
-	// Setup progress tracking
-	pg := progress.New(len(pa.Files))
-	pg.SetDescription(fmt.Sprintf("Processing %s files", format))
 
 	// Channel for tracking completion
 	done := make(chan struct{})
@@ -289,6 +274,7 @@ func (pa *ProjectAnalyzer) ProcessFiles(outputDir string, format string) (StatsR
 				pa.CharCount += len(content)
 				tokens, _ := tokenEstimator.EstimateFileTokens(absPath, true)
 				pa.TokenCount += tokens
+				pa.TotalSize += fileInfo.Size()
 
 				fmtr.AddFile(formatter.FileInfo{
 					Path:     filePath,
@@ -300,7 +286,6 @@ func (pa *ProjectAnalyzer) ProcessFiles(outputDir string, format string) (StatsR
 		}
 
 		completed++
-		pg.Update(completed)
 	}
 
 	// Set statistics and metadata
