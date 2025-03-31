@@ -26,6 +26,7 @@ import (
 
 	"github.com/benoitpetit/prompt-my-project/pkg/analyzer"
 	"github.com/benoitpetit/prompt-my-project/pkg/binary"
+	"github.com/benoitpetit/prompt-my-project/pkg/formatter"
 	"github.com/dustin/go-humanize"
 	"github.com/fatih/color"
 	"github.com/urfave/cli/v2"
@@ -214,6 +215,54 @@ func printStatistics(stats analyzer.StatsResult) {
 	fmt.Println()
 }
 
+// Helper function to detect the language of a file
+func detectFileLanguage(filename string) string {
+	ext := filepath.Ext(filename)
+
+	switch strings.ToLower(ext) {
+	case ".go":
+		return "Go"
+	case ".js":
+		return "JavaScript"
+	case ".ts":
+		return "TypeScript"
+	case ".py":
+		return "Python"
+	case ".java":
+		return "Java"
+	case ".rb":
+		return "Ruby"
+	case ".php":
+		return "PHP"
+	case ".cs":
+		return "C#"
+	case ".c":
+		return "C"
+	case ".cpp", ".cc":
+		return "C++"
+	case ".h":
+		return "C/C++ Header"
+	case ".html", ".htm":
+		return "HTML"
+	case ".css":
+		return "CSS"
+	case ".json":
+		return "JSON"
+	case ".xml":
+		return "XML"
+	case ".md":
+		return "Markdown"
+	case ".sh":
+		return "Shell"
+	case ".bat", ".cmd":
+		return "Batch"
+	case ".sql":
+		return "SQL"
+	default:
+		return "Plain Text"
+	}
+}
+
 func main() {
 	// Initialize binary cache
 	binaryCache := binary.NewCache()
@@ -293,7 +342,7 @@ Usage examples:
 			&cli.StringFlag{
 				Name:    "format",
 				Aliases: []string{"f"},
-				Usage:   "Output format (txt, json, or xml)",
+				Usage:   "Output format (txt, json, xml, or stdout)",
 				Value:   DefaultConfig.OutputFormat,
 			},
 		},
@@ -373,27 +422,6 @@ Usage examples:
 				}
 			}
 
-			// Determine output directory
-			outputDir := c.String("output")
-			if outputOverride != "" {
-				outputDir = outputOverride
-			}
-
-			if outputDir == "" {
-				outputDir = filepath.Join(dir, DefaultConfig.OutputDir)
-			} else if !filepath.IsAbs(outputDir) {
-				outputDir = filepath.Join(dir, outputDir)
-			}
-
-			// Check if output directory is in the project
-			relPath, err := filepath.Rel(dir, outputDir)
-			if err == nil && !strings.HasPrefix(relPath, "..") {
-				gitignoreEntry := strings.TrimPrefix(relPath, string(filepath.Separator))
-				if err := ensureGitignoreEntry(dir, gitignoreEntry); err != nil {
-					fmt.Printf("Warning: unable to update .gitignore: %v\n", err)
-				}
-			}
-
 			// Create the project analyzer
 			projectAnalyzer := analyzer.New(
 				dir,
@@ -411,15 +439,169 @@ Usage examples:
 				return err
 			}
 
-			// Process files
-			stats, err := projectAnalyzer.ProcessFiles(outputDir, format)
-			if err != nil {
-				return err
+			// In stdout format we don't need an output directory
+			var outputDir string
+			if format != "stdout" {
+				// Determine output directory
+				outputDir = c.String("output")
+				if outputOverride != "" {
+					outputDir = outputOverride
+				}
+
+				if outputDir == "" {
+					outputDir = filepath.Join(dir, DefaultConfig.OutputDir)
+				} else if !filepath.IsAbs(outputDir) {
+					outputDir = filepath.Join(dir, outputDir)
+				}
+
+				// Check if output directory is in the project
+				relPath, err := filepath.Rel(dir, outputDir)
+				if err == nil && !strings.HasPrefix(relPath, "..") {
+					gitignoreEntry := strings.TrimPrefix(relPath, string(filepath.Separator))
+					if err := ensureGitignoreEntry(dir, gitignoreEntry); err != nil {
+						fmt.Printf("Warning: unable to update .gitignore: %v\n", err)
+					}
+				}
+
+				// Create the output directory if it doesn't exist
+				if err := os.MkdirAll(outputDir, 0755); err != nil {
+					return fmt.Errorf("failed to create output directory: %w", err)
+				}
 			}
 
-			// Display statistics
-			printStatistics(stats)
-			return nil
+			// Process files and generate output
+			if format == "stdout" {
+				// For stdout format, we don't need an output directory
+				// We need to capture the normal output to prevent it from showing
+				originalStdout := os.Stdout
+				originalStderr := os.Stderr
+
+				// Create a null device to redirect unnecessary output
+				nullDev, _ := os.Open(os.DevNull)
+				defer nullDev.Close()
+
+				// Redirect stdout and stderr to /dev/null when running ProcessFiles
+				// to prevent statistics and warning messages from showing
+				os.Stdout = nullDev
+				os.Stderr = nullDev
+
+				// Process files in silent mode
+				stats, err := projectAnalyzer.ProcessFiles("", format)
+
+				// Restore original stdout and stderr
+				os.Stdout = originalStdout
+				os.Stderr = originalStderr
+
+				// Check for errors
+				if err != nil {
+					return err
+				}
+
+				// For stdout format, generate content and send directly to stdout without stats
+				fmtr := formatter.NewFormatter(strings.ReplaceAll(format, "stdout", "json"), "", dir)
+
+				// Set data
+				fmtr.SetStatistics(
+					stats.FileCount,
+					stats.TotalSize,
+					stats.TokenCount,
+					stats.CharCount,
+					stats.ProcessTime,
+				)
+				fmtr.SetTechnologies(stats.Technologies)
+				fmtr.SetKeyFiles(stats.KeyFiles)
+				fmtr.SetIssues(stats.Issues)
+				fmtr.SetFileTypes(stats.FileTypes)
+
+				// Set structure
+				structure, err := projectAnalyzer.GenerateProjectStructure()
+				if err != nil {
+					return fmt.Errorf("error generating project structure: %w", err)
+				}
+				fmtr.SetProjectStructure(structure)
+
+				// Add files
+				for _, filePath := range projectAnalyzer.Files {
+					absPath := filepath.Join(dir, filePath)
+					fileInfo, err := os.Stat(absPath)
+					if err == nil {
+						content, _ := os.ReadFile(absPath)
+						fmtr.AddFile(formatter.FileInfo{
+							Path:     filePath,
+							Size:     fileInfo.Size(),
+							Content:  string(content),
+							Language: detectFileLanguage(filePath),
+						})
+					}
+				}
+
+				// Get formatted content and output directly to stdout
+				content, err := fmtr.GetFormattedContent()
+				if err != nil {
+					return fmt.Errorf("error formatting content: %w", err)
+				}
+
+				// Write directly to stdout without any additional formatting or stats
+				fmt.Print(content)
+				return nil
+			} else {
+				// For normal formats (not stdout), process and write to file
+				stats, err := projectAnalyzer.ProcessFiles(outputDir, format)
+				if err != nil {
+					return err
+				}
+
+				// Get the formatter
+				fmtr := formatter.NewFormatter(format, outputDir, dir)
+
+				// Set data
+				fmtr.SetStatistics(
+					stats.FileCount,
+					stats.TotalSize,
+					stats.TokenCount,
+					stats.CharCount,
+					stats.ProcessTime,
+				)
+				fmtr.SetTechnologies(stats.Technologies)
+				fmtr.SetKeyFiles(stats.KeyFiles)
+				fmtr.SetIssues(stats.Issues)
+				fmtr.SetFileTypes(stats.FileTypes)
+
+				// Set structure
+				structure, err := projectAnalyzer.GenerateProjectStructure()
+				if err != nil {
+					return fmt.Errorf("error generating project structure: %w", err)
+				}
+				fmtr.SetProjectStructure(structure)
+
+				// Add files
+				for _, filePath := range projectAnalyzer.Files {
+					absPath := filepath.Join(dir, filePath)
+					fileInfo, err := os.Stat(absPath)
+					if err == nil {
+						content, _ := os.ReadFile(absPath)
+						fmtr.AddFile(formatter.FileInfo{
+							Path:     filePath,
+							Size:     fileInfo.Size(),
+							Content:  string(content),
+							Language: detectFileLanguage(filePath),
+						})
+					}
+				}
+
+				// Write to file
+				outputPath, err := fmtr.WriteToFile()
+				if err != nil {
+					return fmt.Errorf("error writing output file: %w", err)
+				}
+
+				// Update stats output path
+				stats.OutputPath = outputPath
+
+				// Display statistics
+				printStatistics(stats)
+				return nil
+			}
 		},
 	}
 

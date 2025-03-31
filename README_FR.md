@@ -36,7 +36,7 @@ PMP analyse votre base de code et génère des prompts structurés complets opti
 - 🎯 **Filtrage flexible** : Correspondance de motifs avancée pour inclure ou exclure des fichiers et répertoires spécifiques
 - 📊 **Statistiques complètes** : Nombre de fichiers, distribution des tailles et estimation des tokens pour les modèles d'IA
 - 🔬 **Détection de technologies** : Identifie automatiquement les langages de programmation et frameworks utilisés
-- 📝 **Formats de sortie multiples** : Export en TXT, JSON ou XML avec informations détaillées sur le projet
+- 📝 **Formats de sortie multiples** : Export en TXT, JSON, XML ou directement vers stdout pour intégration dans des pipelines
 - 🚀 **Haute performance** : Traitement concurrent avec mise en cache intelligente et gestion de la mémoire
 
 ## ✨ Fonctionnalités
@@ -150,7 +150,7 @@ Effectue une analyse statique avancée :
 | Taille Totale Max| 10MB   | Taille totale maximale du projet |
 | Limite Réessai| 1MB       | Taille maximale pour les réessais |
 | Barre Progrès | 40 chars  | Largeur de l'indicateur de progression |
-| Format Sortie | txt       | Format de sortie (txt/json/xml) |
+| Format Sortie | txt       | Format de sortie (txt/json/xml/stdout) |
 
 ## 📂 Organisation de la Sortie
 
@@ -273,6 +273,9 @@ pmp . --format json
 
 # Spécifier le répertoire de sortie
 pmp . -o ~/prompts
+
+# Sortie directe vers stdout (pour le piping)
+pmp . --format stdout
 ```
 
 ### Options disponibles
@@ -288,13 +291,13 @@ pmp . -o ~/prompts
 | `--workers`      | -     | Nombre de workers parallèles           | Nombre de CPU |
 | `--max-files`    | -     | Nombre maximum de fichiers              | 500 |
 | `--max-total-size` | -   | Taille totale maximale                   | 10MB |
-| `--format`       | `-f`  | Format de sortie (txt, json, ou xml)    | txt |
+| `--format`       | `-f`  | Format de sortie (txt, json, xml, ou stdout)    | txt |
 | `--help`         | -     | Afficher l'aide                         | - |
 | `--version`      | -     | Afficher la version                      | - |
 
 ## 📋 Formats de sortie
 
-PMP prend en charge trois formats de sortie, chacun conçu pour des cas d'utilisation différents :
+PMP prend en charge quatre formats de sortie, chacun conçu pour des cas d'utilisation différents :
 
 ### Format texte (par défaut)
 Texte formaté lisible par l'homme, optimisé pour une utilisation directe avec les assistants IA. Inclut la structure du projet, le contenu des fichiers et des statistiques complètes.
@@ -311,6 +314,57 @@ Format hiérarchique pour l'intégration avec les systèmes d'entreprise et les 
 
 ```bash
 pmp . --format xml
+```
+
+### Format Stdout (Nouveau !)
+Sortie directe vers la sortie standard sans créer de fichier, idéal pour le piping vers d'autres outils et les intégrations en ligne de commande. Utilise le format JSON par défaut.
+
+```bash
+pmp . --format stdout | jq .
+```
+
+## 🔄 Exemples d'intégration
+
+PMP peut être facilement intégré avec d'autres outils en utilisant l'option `--format stdout`. Voici quelques exemples :
+
+### Avec des LLM locaux (Utilisant Ollama)
+
+```bash
+# Envoyer le contexte de votre projet à un modèle Llama3 local
+pmp . --format stdout | ollama run llama3 "Analyse cette base de code et suggère des améliorations"
+
+# Poser une question spécifique sur votre code
+pmp . -i "*.js" --format stdout | ollama run codellama "Comment puis-je optimiser ces fichiers JavaScript ?"
+
+# Générer de la documentation pour votre projet
+pmp . --format stdout | ollama run mistral "Génère une documentation complète pour ce projet"
+```
+
+### Avec des outils de traitement
+
+```bash
+# Extraire et analyser des informations spécifiques
+pmp . --format stdout | jq '.technologies'
+
+# Compter les fichiers par langage
+pmp . --format stdout | jq '.files | group_by(.language) | map({language: .[0].language, count: length})'
+
+# Trouver les fichiers les plus volumineux
+pmp . --format stdout | jq '.files | sort_by(.size) | reverse | .[0:5]'
+```
+
+### Dans des scripts personnalisés
+
+```bash
+#!/bin/bash
+# Exemple : Trouver les commentaires TODO dans votre base de code
+pmp . --format stdout | grep -i "TODO" > todos.txt
+
+# Exemple : Extraire des types de fichiers spécifiques pour analyse
+pmp . --format stdout | jq '.files[] | select(.path | endswith(".go"))' > fichiers_go.json
+
+# Exemple : Générer un résumé de projet pour un rapport
+pmp . --format stdout | jq '{nom: .project_info.name, techs: .technologies, nombre_fichiers: .statistics.file_count}' > resume.json
 ```
 
 ## 📊 Contenu de la sortie

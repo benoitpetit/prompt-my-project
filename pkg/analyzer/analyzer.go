@@ -308,11 +308,11 @@ func (pa *ProjectAnalyzer) ProcessFiles(outputDir string, format string) (StatsR
 	}
 	fmtr.SetProjectStructure(structure)
 
-	// Write the formatted output to file
-	outputPath, err := fmtr.WriteToFile()
-	if err != nil {
-		return stats, fmt.Errorf("error writing output file: %w", err)
-	}
+	// We do not write to file when --buffer is used, it will be handled in main.go
+	// The output path will be still generated for tracking purposes
+	timestamp := time.Now().Format("20060102_150405")
+	filename := fmt.Sprintf("prompt_%s.%s", timestamp, format)
+	outputPath := filepath.Join(outputDir, filename)
 
 	// Populate stats result
 	stats.FileCount = len(pa.Files)

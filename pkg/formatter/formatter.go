@@ -16,9 +16,10 @@ import (
 type OutputFormat string
 
 const (
-	FormatTXT  OutputFormat = "txt"
-	FormatJSON OutputFormat = "json"
-	FormatXML  OutputFormat = "xml"
+	FormatTXT    OutputFormat = "txt"
+	FormatJSON   OutputFormat = "json"
+	FormatXML    OutputFormat = "xml"
+	FormatSTDOUT OutputFormat = "stdout" // Format pour sortie directe sur stdout
 )
 
 // ProjectReport represents the structure for formatted output
@@ -221,6 +222,92 @@ func (f *Formatter) WriteToFile() (string, error) {
 	}
 
 	return outputPath, nil
+}
+
+// WriteToStdout writes the formatted output to stdout
+func (f *Formatter) WriteToStdout() error {
+	var content []byte
+	var err error
+
+	switch f.format {
+	case FormatJSON:
+		content, err = json.MarshalIndent(f.report, "", "  ")
+	case FormatXML:
+		content, err = xml.MarshalIndent(f.report, "", "  ")
+		// Add XML header
+		content = append([]byte(xml.Header), content...)
+	default: // FormatTXT
+		var textContent strings.Builder
+		textContent.WriteString(f.headerContent)
+		textContent.WriteString("\nPROJECT STRUCTURE:\n")
+		textContent.WriteString("-----------------------------------------------------\n\n")
+		textContent.WriteString(f.structure)
+		textContent.WriteString("\nFILE CONTENTS:\n")
+		textContent.WriteString("-----------------------------------------------------\n")
+
+		// Add file contents
+		for _, file := range f.report.Files {
+			textContent.WriteString("\n================================================\n")
+			textContent.WriteString(fmt.Sprintf("File: %s\n", file.Path))
+			textContent.WriteString("================================================\n")
+			textContent.WriteString(file.Content)
+			textContent.WriteString("\n")
+		}
+
+		content = []byte(textContent.String())
+	}
+
+	if err != nil {
+		return fmt.Errorf("error formatting output: %w", err)
+	}
+
+	// Write to stdout
+	_, err = fmt.Print(string(content))
+	if err != nil {
+		return fmt.Errorf("failed to write to stdout: %w", err)
+	}
+
+	return nil
+}
+
+// GetFormattedContent returns the formatted content as a string
+func (f *Formatter) GetFormattedContent() (string, error) {
+	var content []byte
+	var err error
+
+	switch f.format {
+	case FormatJSON:
+		content, err = json.MarshalIndent(f.report, "", "  ")
+	case FormatXML:
+		content, err = xml.MarshalIndent(f.report, "", "  ")
+		// Add XML header
+		content = append([]byte(xml.Header), content...)
+	default: // FormatTXT
+		var textContent strings.Builder
+		textContent.WriteString(f.headerContent)
+		textContent.WriteString("\nPROJECT STRUCTURE:\n")
+		textContent.WriteString("-----------------------------------------------------\n\n")
+		textContent.WriteString(f.structure)
+		textContent.WriteString("\nFILE CONTENTS:\n")
+		textContent.WriteString("-----------------------------------------------------\n")
+
+		// Add file contents
+		for _, file := range f.report.Files {
+			textContent.WriteString("\n================================================\n")
+			textContent.WriteString(fmt.Sprintf("File: %s\n", file.Path))
+			textContent.WriteString("================================================\n")
+			textContent.WriteString(file.Content)
+			textContent.WriteString("\n")
+		}
+
+		content = []byte(textContent.String())
+	}
+
+	if err != nil {
+		return "", fmt.Errorf("error formatting output: %w", err)
+	}
+
+	return string(content), nil
 }
 
 // max returns the maximum of two integers

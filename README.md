@@ -35,7 +35,7 @@ PMP analyzes your codebase and generates comprehensive, structured prompts optim
 - 🎯 **Flexible Filtering**: Advanced pattern matching for including or excluding specific files and directories
 - 📊 **Comprehensive Statistics**: File counts, size distribution, and token estimation for AI models
 - 🔬 **Technology Detection**: Automatically identifies programming languages and frameworks used
-- 📝 **Multiple Output Formats**: Export as TXT, JSON, or XML with detailed project information
+- 📝 **Multiple Output Formats**: Export as TXT, JSON, XML, or directly to stdout for pipeline integration
 - 🚀 **High Performance**: Concurrent processing with smart caching and memory management
 
 ## 🚀 Installation
@@ -94,6 +94,9 @@ pmp . --format json
 
 # Specify output directory
 pmp . -o ~/prompts
+
+# Output directly to stdout (for piping)
+pmp . --format stdout
 ```
 
 ### Available Options
@@ -109,13 +112,13 @@ pmp . -o ~/prompts
 | `--workers`      | -     | Number of parallel workers           | CPU cores |
 | `--max-files`    | -     | Maximum number of files              | 500 |
 | `--max-total-size` | -   | Maximum total size                   | 10MB |
-| `--format`       | `-f`  | Output format (txt, json, or xml)    | txt |
+| `--format`       | `-f`  | Output format (txt, json, xml, or stdout) | txt |
 | `--help`         | -     | Display help                         | - |
 | `--version`      | -     | Display version                      | - |
 
 ## 📋 Output Formats
 
-PMP supports three output formats, each designed for different use cases:
+PMP supports four output formats, each designed for different use cases:
 
 ### Text Format (Default)
 Human-readable, formatted text optimized for direct use with AI assistants. Includes project structure, file contents, and comprehensive statistics.
@@ -132,6 +135,57 @@ Hierarchical format for integration with enterprise systems and XML-based tools.
 
 ```bash
 pmp . --format xml
+```
+
+### Stdout Format (New!)
+Direct output to standard output without creating a file, ideal for piping to other tools and command-line integrations. Uses JSON format by default.
+
+```bash
+pmp . --format stdout | jq .
+```
+
+## 🔄 Integration Examples
+
+PMP can be easily integrated with other tools using the `--format stdout` option. Here are some examples:
+
+### With Local LLMs (Using Ollama)
+
+```bash
+# Send your project context to a local Llama3 model
+pmp . --format stdout | ollama run llama3 "Analyze this codebase and suggest improvements"
+
+# Ask a specific question about your code
+pmp . -i "*.js" --format stdout | ollama run codellama "How can I optimize these JavaScript files?"
+
+# Generate documentation for your project
+pmp . --format stdout | ollama run mistral "Generate comprehensive documentation for this project"
+```
+
+### With Processing Tools
+
+```bash
+# Extract and analyze specific information
+pmp . --format stdout | jq '.technologies'
+
+# Count files by language
+pmp . --format stdout | jq '.files | group_by(.language) | map({language: .[0].language, count: length})'
+
+# Find the largest files
+pmp . --format stdout | jq '.files | sort_by(.size) | reverse | .[0:5]'
+```
+
+### In Custom Scripts
+
+```bash
+#!/bin/bash
+# Example: Find TODO comments in your codebase
+pmp . --format stdout | grep -i "TODO" > todos.txt
+
+# Example: Extract specific file types for analysis
+pmp . --format stdout | jq '.files[] | select(.path | endswith(".go"))' > go_files.json
+
+# Example: Generate project summary for a report
+pmp . --format stdout | jq '{name: .project_info.name, techs: .technologies, file_count: .statistics.file_count}' > summary.json
 ```
 
 ## 📊 Output Content
