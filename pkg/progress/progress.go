@@ -102,26 +102,29 @@ func (p *Progress) Update(current int) {
 	// Status line
 	var statusLine string
 	if p.description != "" {
-		statusLine = fmt.Sprintf("\r%s: [%s] %.1f%% (%d/%d) %s ",
+		statusLine = fmt.Sprintf("%s: [%s] %.1f%% (%d/%d) %s",
 			p.description, bar, percent, p.current, p.total, eta)
 	} else {
-		statusLine = fmt.Sprintf("\r[%s] %.1f%% (%d/%d) %s ",
+		statusLine = fmt.Sprintf("[%s] %.1f%% (%d/%d) %s",
 			bar, percent, p.current, p.total, eta)
 	}
 
 	// Clear previous line if it was longer
 	if len(statusLine) < p.lastWidth {
-		fmt.Print(strings.Repeat(" ", p.lastWidth) + "\r")
+		fmt.Print("\r" + strings.Repeat(" ", p.lastWidth) + "\r")
+	} else {
+		fmt.Print("\r")
 	}
 	p.lastWidth = len(statusLine)
 
 	// Print status line
 	if p.completed {
-		// Green for completed
-		statusLine = strings.TrimSuffix(statusLine, " ")
+		// Green for completed and add a newline
+		fmt.Print("\r") // Ensure we're at the beginning of the line
 		color.Green(statusLine)
+		fmt.Println() // Add explicit newline after completion
 	} else {
-		// Regular output for in progress
+		// Regular output for in progress (no newline)
 		fmt.Print(statusLine)
 	}
 }
