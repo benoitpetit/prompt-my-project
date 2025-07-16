@@ -1,0 +1,80 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - prod
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Needed to get all tags
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Get last version tag
+        id: get_tag
+        run: |
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v1.0.2")
+          echo "last_tag=$LAST_TAG" >> $GITHUB_OUTPUT
+
+      - name: Compute next version
+        id: next_version
+        run: |
+          # Extract last version numbers
+          TAG=${{ steps.get_tag.outputs.last_tag }}
+          VERSION=${TAG#v}
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+
+          # Get last commit message
+          MSG=$(git log -1 --pretty=%B)
+          if echo "$MSG" | grep -q '\[major\]'; then
+            MAJOR=$((MAJOR+1))
+            MINOR=0
+            PATCH=0
+          elif echo "$MSG" | grep -q '\[minor\]'; then
+            MINOR=$((MINOR+1))
+            PATCH=0
+          else
+            PATCH=$((PATCH+1))
+          fi
+          NEXT_VERSION="v$MAJOR.$MINOR.$PATCH"
+          echo "next_version=$NEXT_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Set version env
+        run: echo "VERSION=${{ steps.next_version.outputs.next_version }}" >> $GITHUB_ENV
+
+      - name: Build binaries
+        run: |
+          chmod +x scripts/build.sh
+          ./scripts/build.sh "$VERSION"
+
+      - name: Create release and upload artifacts
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.VERSION }}
+          name: Release ${{ env.VERSION }}
+          body: |
+            Automated release for ${{ env.VERSION }}
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/checksums.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push new tag (if not already present)
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git tag $VERSION || true
+          git push origin $VERSION || true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
