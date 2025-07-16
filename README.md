@@ -16,102 +16,208 @@
   </a>
 </div>
 
+<p align="center">
+  <strong>Transform your codebase into AI-ready prompts and visual dependency graphs</strong><br>
+  Prompt My Project (PMP) is a powerful command-line tool that analyzes your source code<br>
+  and generates structured prompts optimized for AI assistants like ChatGPT, Claude, and Gemini.
+</p>
 
-<p align="center">Prompt My Project (PMP) is a command-line tool to generate structured prompts<br>and dependency graphs from source code, optimized for AI assistants.</p>
+<p align="center">
+  <a href="#quick-start">Quick Start</a> •
+  <a href="#installation">Installation</a> •
+  <a href="#usage-guide">Usage Guide</a> •
+  <a href="#examples">Examples</a> •
+  <a href="#advanced-features">Advanced Features</a>
+</p>
+
+## Quick Start
+
+### TL;DR - Get started in 30 seconds
+
+```bash
+# Install PMP
+go install github.com/benoitpetit/prompt-my-project@latest
+
+# Generate a prompt for your current project
+pmp prompt . --format stdout:txt
+
+# Generate a dependency graph
+pmp graph . --format dot
+```
+
+### What PMP does for you
+
+- **🤖 AI-Ready Prompts**: Converts your codebase into structured prompts perfect for ChatGPT, Claude, and other AI assistants
+- **📊 Visual Dependency Graphs**: Creates beautiful dependency graphs in multiple formats (DOT, JSON, XML, TXT)
+- **🔧 Smart Filtering**: Automatically excludes binary files, respects .gitignore, and allows custom patterns
+- **⚡ High Performance**: Parallel processing with configurable workers and intelligent file size limits
+- **📝 Multiple Formats**: Supports TXT, JSON, XML output with stdout piping capabilities
 
 ## Installation
 
-You can install PMP with go install:
+### Option 1: Go Install (Recommended)
 
-```
+```bash
 go install github.com/benoitpetit/prompt-my-project@latest
 ```
 
-Or with one of the installation scripts:
+### Option 2: Installation Script
 
-```
+```bash
 curl -fsSL https://raw.githubusercontent.com/benoitpetit/prompt-my-project/master/scripts/install.sh | bash
 ```
 
-For more information, see https://github.com/benoitpetit/prompt-my-project
+### Option 3: Download Binary
 
-## Usage
+Download the latest binary from the [releases page](https://github.com/benoitpetit/prompt-my-project/releases)
 
-### Show help
+### Verify Installation
 
-```
-pmp
-```
-Shows the help message and available subcommands.
-
----
-
-### Generate a project prompt
-
-```
-pmp prompt /path/to/project [options]
+```bash
+pmp --help
 ```
 
-Generates a prompt for the specified project, with options for filtering files and output format.
+If you see the help message, you're ready to go! 🎉
 
-- By default, the prompt file is saved in `/path/to/project/pmp_output/` with a timestamped filename (e.g. `prompt_YYYYMMDD_HHMMSS.txt`).
-- The `pmp_output` directory is automatically created and added to the project's `.gitignore` if not present.
+## Usage Guide
 
-#### Options for `prompt`
+### Basic Commands
 
-| Option                | Description                                                      | Default                |
-|-----------------------|------------------------------------------------------------------|------------------------|
-| `--exclude, -e`       | Exclude files matching these patterns (e.g., *.md, src/)         | *(NONE)*               |
-| `--include, -i`       | Include only files matching these patterns                       | *(ALL)*               |
-| `--min-size`          | Minimum file size (e.g., 1KB, 500B)                              | `1KB`                  |
-| `--max-size`          | Maximum file size (e.g., 100MB, 1GB)                             | `100MB`                |
-| `--no-gitignore`      | Ignore .gitignore file                                           | `false`                |
-| `--output, -o`        | Output directory for the prompt file                             | `<project>/pmp_output/`   |
-| `--workers`           | Number of parallel workers                                       | Number of CPUs         |
-| `--max-files`         | Maximum number of files to process (0 = unlimited)               | `500`                  |
-| `--max-total-size`    | Maximum total size of all files (e.g., 10MB, 0 = unlimited)      | `10MB`                 |
-| `--format, -f`        | Output format (`txt`, `json`, `xml`, or `stdout[:txt|json|xml]`) | `txt`                  |
+| Command | Description | Example |
+|---------|-------------|----------|
+| `pmp` | Show help and available commands | `pmp --help` |
+| `pmp prompt` | Generate AI-ready prompts | `pmp prompt .` |
+| `pmp graph` | Generate dependency graphs | `pmp graph .` |
+| `pmp completion` | Generate shell completions | `pmp completion bash` |
 
-#### Example
-```
-pmp prompt ./myproject --include "*.go" --exclude "test/*" --format json
-# Output: ./myproject/pmp_output/prompt_YYYYMMDD_HHMMSS.json
-```
+### 1. Generate Project Prompts
 
----
+#### Basic Usage
+```bash
+# Generate prompt for current directory
+pmp prompt .
 
-### Generate a project dependency graph
+# Generate prompt for specific project
+pmp prompt /path/to/project
 
-```
-pmp graph /path/to/project --format <dot|json|xml|txt|stdout[:dot|json|xml|txt]>
+# Output to stdout (for piping)
+pmp prompt . --format stdout:txt
 ```
 
-Generates a dependency tree (arborescence) of the project in the specified format.
+#### Advanced Filtering
+```bash
+# Include only specific file types
+pmp prompt . --include "*.go" --include "*.md"
 
-- By default, the graph file is saved in `/path/to/project/pmp_output/` with a timestamped filename (e.g. `graph_YYYYMMDD_HHMMSS.dot`).
-- The `pmp_output` directory is automatically created and added to the project's `.gitignore` if not present.
+# Exclude specific patterns
+pmp prompt . --exclude "test/*" --exclude "*.log"
 
-#### Options for `graph`
-- `--format, -f`    Output format for the graph (`dot`, `json`, `xml`, `txt`, or `stdout[:dot|json|xml|txt]`). Default: `dot`.
-- `--output, -o`    Output directory or file for the graph (default: `<project>/pmp_output/`)
+# Combine include and exclude
+pmp prompt . --include "*.go" --exclude "*_test.go"
 
-#### Example
-```
-pmp graph ./myproject --format dot
-# Output: ./myproject/pmp_output/graph_YYYYMMDD_HHMMSS.dot
-
-pmp graph ./myproject --format json
-# Output: ./myproject/pmp_output/graph_YYYYMMDD_HHMMSS.json
-
-pmp graph ./myproject --format txt
-# Output: ./myproject/pmp_output/graph_YYYYMMDD_HHMMSS.txt
+# Ignore .gitignore rules
+pmp prompt . --no-gitignore
 ```
 
-- `dot`: Outputs a Graphviz DOT file representing the directory and file structure.
-- `json`: Outputs the tree as JSON.
-- `xml`: Outputs the tree as XML.
-- `txt`: Outputs a human-readable tree (like the Unix `tree` command).
-- `stdout[:format]`: Outputs the result directly to stdout, for piping to other tools. Example: `--format stdout:json`.
+#### Size and Performance Controls
+```bash
+# Limit file sizes
+pmp prompt . --min-size 100B --max-size 1MB
+
+# Limit total processing
+pmp prompt . --max-files 100 --max-total-size 5MB
+
+# Adjust worker count
+pmp prompt . --workers 4
+```
+
+#### Output Formats
+```bash
+# Save as JSON
+pmp prompt . --format json
+
+# Save as XML
+pmp prompt . --format xml
+
+# Output to stdout as JSON (for piping)
+pmp prompt . --format stdout:json | jq .
+
+# Custom output directory
+pmp prompt . --output /custom/path
+```
+
+### 2. Generate Dependency Graphs
+
+#### Basic Usage
+```bash
+# Generate DOT graph (default)
+pmp graph .
+
+# Generate as JSON
+pmp graph . --format json
+
+# Generate as human-readable tree
+pmp graph . --format txt
+```
+
+#### Advanced Graph Generation
+```bash
+# Output to stdout for processing
+pmp graph . --format stdout:dot | dot -Tpng > graph.png
+
+# Save to specific file
+pmp graph . --output graph.dot
+
+# Generate multiple formats
+pmp graph . --format json --output project-structure.json
+```
+
+### 3. Common Use Cases
+
+#### For AI Assistants
+```bash
+# Quick prompt for ChatGPT/Claude
+pmp prompt . --format stdout:txt | pbcopy  # macOS
+pmp prompt . --format stdout:txt | xclip   # Linux
+
+# Structured JSON for API integration
+pmp prompt . --format stdout:json > project-context.json
+```
+
+#### For Documentation
+```bash
+# Generate project structure
+pmp graph . --format txt --output project-structure.txt
+
+# Create visual dependency graph
+pmp graph . --format stdout:dot | dot -Tsvg > dependencies.svg
+```
+
+#### For Code Analysis
+```bash
+# Focus on source code only
+pmp prompt . --include "*.go" --include "*.js" --include "*.py"
+
+# Exclude tests and documentation
+pmp prompt . --exclude "*test*" --exclude "*.md" --exclude "docs/*"
+```
+
+### 4. Pro Tips
+
+#### Filtering Best Practices
+- Use `--include` for targeted analysis of specific file types
+- Use `--exclude` to remove noise (logs, build artifacts, etc.)
+- Combine both for precise control
+
+#### Performance Optimization
+- Use `--max-files` and `--max-total-size` for large projects
+- Adjust `--workers` based on your CPU cores
+- Use `--min-size` to skip tiny files
+
+#### Output Management
+- Use `stdout:format` for piping to other tools
+- The `pmp_output/` directory is automatically gitignored
+- Timestamps in filenames prevent conflicts
 
 ---
 
@@ -144,21 +250,172 @@ You can output directly to stdout for use with other tools:
 - This directory is automatically added to your project's `.gitignore` to avoid committing large or generated files.
 - You can override the output location with the `--output` option.
 
-## Supported Languages
+## Examples
 
-PMP supports dependency and structure analysis for projects in Go, JavaScript, TypeScript, Python, Java, Ruby, PHP, C#, C, C++, HTML, CSS, JSON, XML, Markdown, Shell, Batch, SQL, and more.
+### Real-World Scenarios
 
-## Example
+#### 🤖 Preparing Code for AI Review
+```bash
+# Get a comprehensive project overview
+pmp prompt . --format stdout:txt | pbcopy
 
+# Focus on specific modules
+pmp prompt . --include "src/**" --exclude "src/test/**" --format stdout:txt
+
+# Get JSON for API integration
+pmp prompt . --format stdout:json > context.json
 ```
-pmp prompt ./myproject --format txt
-# Output: ./myproject/pmp_output/prompt_YYYYMMDD_HHMMSS.txt
 
-pmp graph ./myproject --format dot
-# Output: ./myproject/pmp_output/graph_YYYYMMDD_HHMMSS.dot
+#### 📊 Project Documentation
+```bash
+# Generate project structure diagram
+pmp graph . --format stdout:dot | dot -Tpng > project-structure.png
+
+# Create text-based documentation
+pmp graph . --format txt > STRUCTURE.md
+
+# Generate multiple formats
+pmp graph . --format json > structure.json
+pmp graph . --format xml > structure.xml
 ```
 
----
+#### 🔍 Code Analysis Workflows
+```bash
+# Analyze only source code (no tests, docs)
+pmp prompt . --include "*.go" --include "*.js" --include "*.py" \
+  --exclude "*test*" --exclude "*.md" --format json
+
+# Focus on recent changes (combined with git)
+git diff --name-only HEAD~10..HEAD | xargs pmp prompt --include
+
+# Large project analysis with limits
+pmp prompt . --max-files 200 --max-total-size 15MB --workers 8
+```
+
+### Integration Examples
+
+#### With jq (JSON processing)
+```bash
+# Extract just the file contents
+pmp prompt . --format stdout:json | jq '.files[].content'
+
+# Get file statistics
+pmp prompt . --format stdout:json | jq '.statistics'
+
+# List detected technologies
+pmp prompt . --format stdout:json | jq '.technologies[]'
+```
+
+#### With Graphviz (Visual graphs)
+```bash
+# Create PNG diagram
+pmp graph . --format stdout:dot | dot -Tpng > graph.png
+
+# Create SVG for web
+pmp graph . --format stdout:dot | dot -Tsvg > graph.svg
+
+# Create PDF documentation
+pmp graph . --format stdout:dot | dot -Tpdf > structure.pdf
+```
+
+#### CI/CD Integration
+```bash
+# Generate project context for automated reviews
+pmp prompt . --format json --output build/context.json
+
+# Create structure documentation
+pmp graph . --format txt --output docs/STRUCTURE.md
+
+# Check project health
+pmp prompt . --format stdout:json | jq '.issues[]'
+```
+
+## Advanced Features
+
+### 🎯 Smart Filtering
+
+PMP automatically excludes common binary files and respects `.gitignore` rules:
+
+```bash
+# Default exclusions include:
+# - node_modules/, vendor/, .git/
+# - Binary files (.exe, .dll, .so, .bin)
+# - Build artifacts (dist/, build/)
+# - Cache directories (__pycache__/, .vscode/)
+```
+
+### 📊 Project Intelligence
+
+#### Technology Detection
+PMP automatically detects:
+- **Languages**: Go, JavaScript, TypeScript, Python, Java, Ruby, PHP, C#, C/C++, Rust, Kotlin, Swift, Scala, R, Dart, Lua, Perl
+- **Frameworks**: Node.js, React, Vue, Angular (via package.json)
+- **Build Tools**: Make, CMake, Gradle, Maven
+- **Containers**: Docker, Docker Compose
+
+#### Key File Identification
+Automatically identifies important files:
+- Entry points: `main.go`, `index.js`, `app.py`
+- Configuration: `package.json`, `go.mod`, `requirements.txt`
+- Build files: `Makefile`, `Dockerfile`, `pom.xml`
+- Documentation: `README.md`, `LICENSE`
+
+#### Issue Detection
+Flags potential project issues:
+- Missing README, LICENSE, or .gitignore
+- No test files detected
+- Large files that might cause problems
+- Unusual project structure
+
+### ⚡ Performance Optimization
+
+#### Parallel Processing
+```bash
+# Adjust workers based on your system
+pmp prompt . --workers $(nproc)  # Linux
+pmp prompt . --workers $(sysctl -n hw.ncpu)  # macOS
+```
+
+#### Memory Management
+```bash
+# Limit memory usage for large projects
+pmp prompt . --max-total-size 50MB --max-files 1000
+
+# Process only essential files
+pmp prompt . --min-size 1KB --max-size 10MB
+```
+
+#### Caching
+PMP uses intelligent caching for:
+- Binary file detection
+- File type recognition
+- Language identification
+
+### 🔧 Configuration
+
+#### Environment Variables
+```bash
+# Set default output directory
+export PMP_OUTPUT_DIR="./analysis"
+
+# Set default worker count
+export PMP_WORKERS=8
+
+# Set default format
+export PMP_FORMAT="json"
+```
+
+#### Project-Specific Settings
+Create `.pmprc` in your project root:
+```json
+{
+  "exclude": ["vendor/**", "node_modules/**"],
+  "include": ["*.go", "*.js", "*.md"],
+  "maxFiles": 500,
+  "maxTotalSize": "10MB",
+  "format": "json"
+}
+```
 
 ## Example: Dependency Graph for This Project
 
@@ -253,6 +510,59 @@ pmp completion powershell | Out-String | Invoke-Expression
 # To enable for all sessions, add the above to your $PROFILE
 ```
 
-## License
+## Troubleshooting
 
-MIT License
+### Common Issues
+
+#### "Permission denied" errors
+```bash
+# Make sure the binary is executable
+chmod +x pmp
+
+# Or install globally
+go install github.com/benoitpetit/prompt-my-project@latest
+```
+
+#### "Command not found" errors
+```bash
+# Check if $GOPATH/bin is in your PATH
+echo $PATH | grep -q "$(go env GOPATH)/bin" || echo "Add $(go env GOPATH)/bin to your PATH"
+
+# Add to your shell profile
+echo 'export PATH="$PATH:$(go env GOPATH)/bin"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+#### Large project performance issues
+```bash
+# Limit files and size for better performance
+pmp prompt . --max-files 200 --max-total-size 15MB
+
+# Adjust workers based on your system
+pmp prompt . --workers 4
+
+# Use specific file patterns
+pmp prompt . --include "*.go" --include "*.js"
+```
+
+#### Output too large for AI assistants
+```bash
+# Focus on key files only
+pmp prompt . --include "*.go" --exclude "*test*" --max-files 50
+
+# Use smaller file size limits
+pmp prompt . --max-size 50KB --max-total-size 5MB
+```
+
+### Not file in your prompt ?
+```bash
+# add little file
+pmp prompt . --min-size 0
+```
+
+### Getting Help
+
+- **Documentation**: [GitHub Repository](https://github.com/benoitpetit/prompt-my-project)
+- **Issues**: [Report bugs or request features](https://github.com/benoitpetit/prompt-my-project/issues)
+
+---
