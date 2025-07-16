@@ -26,6 +26,7 @@ import (
 
 	"github.com/benoitpetit/prompt-my-project/pkg/analyzer"
 	"github.com/benoitpetit/prompt-my-project/pkg/binary"
+	"github.com/benoitpetit/prompt-my-project/pkg/config"
 	"github.com/benoitpetit/prompt-my-project/pkg/formatter"
 	"github.com/benoitpetit/prompt-my-project/pkg/utils"
 	"github.com/dustin/go-humanize"
@@ -226,12 +227,23 @@ func printStatistics(stats analyzer.StatsResult) {
 func main() {
 	var rootCmd = &cobra.Command{
 		Use:   "pmp",
-		Short: "Generate a project prompt or dependency graph for AI",
-		Long: `Prompt My Project (PMP) analyzes your project and generates a formatted prompt for AI assistants, or a dependency graph.
+		Short: "Transform your codebase into AI-ready prompts and visual dependency graphs",
+		Long: `Prompt My Project (PMP) is a powerful command-line tool that analyzes your source code
+and generates structured prompts optimized for AI assistants like ChatGPT, Claude, and Gemini.
 
-Usage examples:
-   pmp prompt ./path/to/project [options]          # Generate prompt
-   pmp graph ./path/to/project [options]           # Generate dependency graph in chosen format`,
+🤖 AI-Ready Prompts: Converts your codebase into structured prompts
+📊 Visual Dependency Graphs: Creates beautiful dependency graphs in multiple formats
+🔧 Smart Filtering: Automatically excludes binary files and respects .gitignore
+⚡ High Performance: Parallel processing with configurable workers
+
+Quick Start:
+   pmp prompt .                                    # Generate prompt for current project
+   pmp prompt . --format stdout:txt               # Output to stdout for piping
+   pmp graph . --format dot                       # Generate dependency graph
+   pmp graph . --format stdout:dot | dot -Tpng > graph.png  # Create visual graph
+
+For more examples and documentation, visit:
+   https://github.com/benoitpetit/prompt-my-project`,
 		Run: func(cmd *cobra.Command, args []string) {
 			cmd.Help()
 		},
@@ -240,10 +252,76 @@ Usage examples:
 	// PROMPT COMMAND
 	var promptCmd = &cobra.Command{
 		Use:   "prompt [project path]",
-		Short: "Generate a project prompt for AI",
+		Short: "Generate AI-ready prompts from your codebase",
+		Long: `Generate structured prompts from your project's source code, optimized for AI assistants like ChatGPT, Claude, and Gemini.
+
+This command analyzes your project files, extracts meaningful content, and formats it into
+a comprehensive prompt that provides AI assistants with complete context about your codebase.
+
+Key features:
+  • Smart filtering: Automatically excludes binary files and respects .gitignore
+  • Multiple formats: Output as TXT, JSON, XML, or directly to stdout
+  • Performance controls: Configurable limits for files, sizes, and parallel workers
+  • Technology detection: Automatically identifies languages, frameworks, and tools
+
+Examples:
+  pmp prompt .                                    # Generate prompt for current project
+  pmp prompt . --format stdout:txt               # Output to stdout for piping
+  pmp prompt . --include "*.go" --exclude "test" # Focus on Go files, exclude tests
+  pmp prompt . --format json --output /tmp       # Save as JSON in custom location
+  pmp prompt . --max-files 100 --workers 4       # Limit files and workers for large projects`,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// Flags
+			// Path
+			dir := args[0]
+			if !filepath.IsAbs(dir) {
+				absDir, err := filepath.Abs(dir)
+				if err == nil {
+					dir = absDir
+				}
+			}
+
+			// Load configuration from .pmprc, environment variables, and command-line flags
+			cfg, err := config.LoadConfig(dir)
+			if err != nil {
+				fmt.Printf("Warning: error loading .pmprc: %v\n", err)
+				cfg = config.DefaultConfig()
+			}
+
+			// Merge with environment variables
+			envCfg := config.GetEnvironmentConfig()
+			if len(envCfg.Exclude) > 0 {
+				cfg.Exclude = envCfg.Exclude
+			}
+			if len(envCfg.Include) > 0 {
+				cfg.Include = envCfg.Include
+			}
+			if envCfg.MinSize != "" {
+				cfg.MinSize = envCfg.MinSize
+			}
+			if envCfg.MaxSize != "" {
+				cfg.MaxSize = envCfg.MaxSize
+			}
+			if envCfg.MaxFiles > 0 {
+				cfg.MaxFiles = envCfg.MaxFiles
+			}
+			if envCfg.MaxTotalSize != "" {
+				cfg.MaxTotalSize = envCfg.MaxTotalSize
+			}
+			if envCfg.Format != "" {
+				cfg.Format = envCfg.Format
+			}
+			if envCfg.OutputDir != "" {
+				cfg.OutputDir = envCfg.OutputDir
+			}
+			if envCfg.Workers > 0 {
+				cfg.Workers = envCfg.Workers
+			}
+			if envCfg.NoGitignore {
+				cfg.NoGitignore = envCfg.NoGitignore
+			}
+
+			// Get command-line flags
 			excludePatterns, _ := cmd.Flags().GetStringSlice("exclude")
 			includePatterns, _ := cmd.Flags().GetStringSlice("include")
 			minSizeStr, _ := cmd.Flags().GetString("min-size")
@@ -255,14 +333,24 @@ Usage examples:
 			maxTotalSizeStr, _ := cmd.Flags().GetString("max-total-size")
 			format, _ := cmd.Flags().GetString("format")
 
-			// Path
-			dir := args[0]
-			if !filepath.IsAbs(dir) {
-				absDir, err := filepath.Abs(dir)
-				if err == nil {
-					dir = absDir
-				}
-			}
+			// Merge command-line flags with configuration (flags take precedence)
+			cfg.MergeWithFlags(
+				excludePatterns, includePatterns,
+				minSizeStr, maxSizeStr, maxTotalSizeStr, format, outputDir,
+				maxFiles, workers, noGitignore,
+			)
+
+			// Use final configuration values
+			excludePatterns = cfg.Exclude
+			includePatterns = cfg.Include
+			minSizeStr = cfg.MinSize
+			maxSizeStr = cfg.MaxSize
+			maxTotalSizeStr = cfg.MaxTotalSize
+			format = cfg.Format
+			outputDir = cfg.OutputDir
+			maxFiles = cfg.MaxFiles
+			workers = cfg.Workers
+			noGitignore = cfg.NoGitignore
 
 			// Parse sizes
 			minSize, err := parseSize(minSizeStr)
@@ -410,7 +498,28 @@ Usage examples:
 	// GRAPH COMMAND
 	var graphCmd = &cobra.Command{
 		Use:   "graph [project path]",
-		Short: "Generate a project dependency graph/arborescence",
+		Short: "Generate visual dependency graphs and project structure",
+		Long: `Generate visual dependency graphs and project structure representations in multiple formats.
+
+This command analyzes your project's file and directory structure to create visual representations
+that help understand the project's organization and dependencies.
+
+Supported formats:
+  • DOT: Graphviz format for creating visual diagrams (default)
+  • JSON: Machine-readable structure data
+  • XML: Structured markup representation
+  • TXT: Human-readable tree format (like Unix tree command)
+
+Output options:
+  • File: Save to timestamped files in pmp_output/ directory
+  • Stdout: Pipe output to other tools for processing
+
+Examples:
+  pmp graph .                                     # Generate DOT graph
+  pmp graph . --format json                      # Generate JSON structure
+  pmp graph . --format stdout:dot | dot -Tpng > graph.png  # Create PNG image
+  pmp graph . --format txt > STRUCTURE.md        # Save as documentation
+  pmp graph . --output /tmp/graph.json           # Custom output location`,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			format, _ := cmd.Flags().GetString("format")

@@ -18,6 +18,7 @@ go.work
 
 # build file
 pmp
+.pmprc
 
 # Added by Prompt My Project (PMP) - https://github.com/benoitpetit/prompt-my-project
 pmp_output

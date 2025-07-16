@@ -110,8 +110,44 @@ func (pa *ProjectAnalyzer) CollectFiles() error {
 			humanize.Bytes(uint64(pa.MaxTotalSize)))
 
 		// Sort files by size and keep only those that fit the limit
-		// This would require more implementation details to properly sort
-		// and select files based on size
+		type FileWithSize struct {
+			Path string
+			Size int64
+		}
+
+		var filesWithSize []FileWithSize
+		for _, file := range files {
+			info, err := os.Stat(filepath.Join(pa.Dir, file))
+			if err == nil {
+				filesWithSize = append(filesWithSize, FileWithSize{
+					Path: file,
+					Size: info.Size(),
+				})
+			}
+		}
+
+		// Sort by size (smallest first) to maximize file count
+		for i := 0; i < len(filesWithSize)-1; i++ {
+			for j := i + 1; j < len(filesWithSize); j++ {
+				if filesWithSize[i].Size > filesWithSize[j].Size {
+					filesWithSize[i], filesWithSize[j] = filesWithSize[j], filesWithSize[i]
+				}
+			}
+		}
+
+		// Keep files that fit within the limit
+		files = []string{}
+		var currentSize int64
+		for _, fileWithSize := range filesWithSize {
+			if currentSize+fileWithSize.Size <= pa.MaxTotalSize {
+				files = append(files, fileWithSize.Path)
+				currentSize += fileWithSize.Size
+			} else {
+				break
+			}
+		}
+
+		fmt.Printf("Reduced file count from %d to %d to fit size limit\n", len(filesWithSize), len(files))
 	}
 
 	pa.Files = files
@@ -234,23 +270,40 @@ func (pa *ProjectAnalyzer) ProcessFiles(outputDir string, format string) (StatsR
 	pool := worker.NewPool(pa.WorkerCount)
 	pool.Start()
 
+	// Channel for tracking completion
+	done := make(chan struct{})
+	
+	// Ensure pool is properly stopped even if errors occur
+	defer func() {
+		// Make sure we don't leak goroutines
+		select {
+		case <-done:
+			// Already done
+		default:
+			pool.Stop()
+		}
+	}()
+
 	// Detect technologies and key files
 	technologies := detectTechnologies(pa.Files)
 	keyFiles := identifyKeyFiles(pa.Files)
 	issues := identifyPotentialIssues(pa.Files)
 	fileTypes := collectFileExtensions(pa.Files)
 
-	// Channel for tracking completion
-	done := make(chan struct{})
-
 	// Send jobs
 	go func() {
 		defer close(done)
 		for i, file := range pa.Files {
-			pool.GetJobs() <- worker.Job{
+			select {
+			case pool.GetJobs() <- worker.Job{
 				Index:    i,
 				FilePath: file,
 				RootDir:  pa.Dir,
+			}:
+				// Job sent successfully
+			case <-done:
+				// Context cancelled, return early
+				return
 			}
 		}
 		pool.Stop()
