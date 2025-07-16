@@ -1,6 +1,8 @@
 package utils
 
 import (
+	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -129,4 +131,55 @@ func CountFilesRecursive(dir *Directory) int {
 	}
 
 	return count
+}
+
+// GenerateDotOutput generates a DOT (Graphviz) representation of the directory tree
+func GenerateDotOutput(root *Directory) string {
+	var builder strings.Builder
+	builder.WriteString("digraph G {\n")
+	id := 0
+	var walk func(dir *Directory, parentID int) int
+	walk = func(dir *Directory, parentID int) int {
+		myID := id
+		id++
+		dirLabel := fmt.Sprintf("dir_%d", myID)
+		builder.WriteString(fmt.Sprintf("  %s [label=\"%s/\", shape=folder];\n", dirLabel, dir.Name))
+		if parentID >= 0 {
+			parentLabel := fmt.Sprintf("dir_%d", parentID)
+			builder.WriteString(fmt.Sprintf("  %s -> %s;\n", parentLabel, dirLabel))
+		}
+		for _, file := range dir.Files {
+			fileID := id
+			id++
+			fileLabel := fmt.Sprintf("file_%d", fileID)
+			builder.WriteString(fmt.Sprintf("  %s [label=\"%s\", shape=note];\n", fileLabel, file))
+			builder.WriteString(fmt.Sprintf("  %s -> %s;\n", dirLabel, fileLabel))
+		}
+		for _, sub := range dir.SubDirs {
+			walk(sub, myID)
+		}
+		return myID
+	}
+	walk(root, -1)
+	builder.WriteString("}\n")
+	return builder.String()
+}
+
+// GenerateJSONTreeOutput generates a JSON representation of the directory tree
+func GenerateJSONTreeOutput(root *Directory) string {
+	data, err := json.MarshalIndent(root, "", "  ")
+	if err != nil {
+		return "{}"
+	}
+	return string(data)
+}
+
+// GenerateXMLTreeOutput generates an XML representation of the directory tree
+func GenerateXMLTreeOutput(root *Directory) string {
+	type xmlDir Directory
+	data, err := xml.MarshalIndent((*xmlDir)(root), "", "  ")
+	if err != nil {
+		return "<Directory/>"
+	}
+	return xml.Header + string(data)
 }

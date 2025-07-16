@@ -16,6 +16,8 @@
 # Go workspace file
 go.work
 
-# PMP specific
-prompts
+# build file
 pmp
+
+# Added by Prompt My Project (PMP) - https://github.com/benoitpetit/prompt-my-project
+pmp_output

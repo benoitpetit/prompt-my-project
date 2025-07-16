@@ -317,6 +317,12 @@ func (pa *ProjectAnalyzer) ProcessFiles(outputDir string, format string) (StatsR
 	filename := fmt.Sprintf("prompt_%s.%s", timestamp, format)
 	outputPath := filepath.Join(outputDir, filename)
 
+	// Write the prompt file to disk
+	_, err = fmtr.WriteToFile()
+	if err != nil {
+		return stats, fmt.Errorf("failed to write output file: %w", err)
+	}
+
 	// Populate stats result
 	stats.FileCount = len(pa.Files)
 	stats.TotalSize = pa.TotalSize

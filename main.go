@@ -28,10 +28,9 @@ import (
 	"github.com/benoitpetit/prompt-my-project/pkg/binary"
 	"github.com/benoitpetit/prompt-my-project/pkg/formatter"
 	"github.com/benoitpetit/prompt-my-project/pkg/utils"
-	"github.com/bmatcuk/doublestar/v4"
 	"github.com/dustin/go-humanize"
 	"github.com/fatih/color"
-	"github.com/urfave/cli/v2"
+	"github.com/spf13/cobra"
 )
 
 // Global configuration
@@ -54,7 +53,7 @@ var DefaultConfig = struct {
 }{
 	MinSize:         "1KB",
 	MaxSize:         "100MB",
-	OutputDir:       "prompts",
+	OutputDir:       "pmp_output",
 	GitIgnore:       true,
 	WorkerCount:     runtime.NumCPU(),
 	MaxFiles:        500,    // Default file limit
@@ -170,6 +169,8 @@ func loadGitignorePatterns(rootDir string) ([]string, error) {
 func ensureGitignoreEntry(projectDir, entry string) error {
 	gitignorePath := filepath.Join(projectDir, ".gitignore")
 
+	comment := "# Added by Prompt My Project (PMP) - https://github.com/benoitpetit/prompt-my-project"
+
 	// Check if .gitignore already contains the entry
 	if _, err := os.Stat(gitignorePath); err == nil {
 		content, err := os.ReadFile(gitignorePath)
@@ -185,19 +186,19 @@ func ensureGitignoreEntry(projectDir, entry string) error {
 			}
 		}
 
-		// Entry doesn't exist, append it
+		// Entry doesn't exist, append it with a comment
 		file, err := os.OpenFile(gitignorePath, os.O_APPEND|os.O_WRONLY, 0644)
 		if err != nil {
 			return err
 		}
 		defer file.Close()
 
-		if _, err := file.WriteString("\n" + entry + "\n"); err != nil {
+		if _, err := file.WriteString("\n" + comment + "\n" + entry + "\n"); err != nil {
 			return err
 		}
 	} else {
-		// .gitignore doesn't exist, create it
-		if err := os.WriteFile(gitignorePath, []byte(entry+"\n"), 0644); err != nil {
+		// .gitignore doesn't exist, create it with a comment
+		if err := os.WriteFile(gitignorePath, []byte(comment+"\n"+entry+"\n"), 0644); err != nil {
 			return err
 		}
 	}
@@ -222,10 +223,547 @@ func printStatistics(stats analyzer.StatsResult) {
 	fmt.Println()
 }
 
-// Helper function to detect the language of a file
-func detectFileLanguage(filename string) string {
-	ext := filepath.Ext(filename)
+func main() {
+	var rootCmd = &cobra.Command{
+		Use:   "pmp",
+		Short: "Generate a project prompt or dependency graph for AI",
+		Long: `Prompt My Project (PMP) analyzes your project and generates a formatted prompt for AI assistants, or a dependency graph.
 
+Usage examples:
+   pmp prompt ./path/to/project [options]          # Generate prompt
+   pmp graph ./path/to/project [options]           # Generate dependency graph in chosen format`,
+		Run: func(cmd *cobra.Command, args []string) {
+			cmd.Help()
+		},
+	}
+
+	// PROMPT COMMAND
+	var promptCmd = &cobra.Command{
+		Use:   "prompt [project path]",
+		Short: "Generate a project prompt for AI",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// Flags
+			excludePatterns, _ := cmd.Flags().GetStringSlice("exclude")
+			includePatterns, _ := cmd.Flags().GetStringSlice("include")
+			minSizeStr, _ := cmd.Flags().GetString("min-size")
+			maxSizeStr, _ := cmd.Flags().GetString("max-size")
+			noGitignore, _ := cmd.Flags().GetBool("no-gitignore")
+			outputDir, _ := cmd.Flags().GetString("output")
+			workers, _ := cmd.Flags().GetInt("workers")
+			maxFiles, _ := cmd.Flags().GetInt("max-files")
+			maxTotalSizeStr, _ := cmd.Flags().GetString("max-total-size")
+			format, _ := cmd.Flags().GetString("format")
+
+			// Path
+			dir := args[0]
+			if !filepath.IsAbs(dir) {
+				absDir, err := filepath.Abs(dir)
+				if err == nil {
+					dir = absDir
+				}
+			}
+
+			// Parse sizes
+			minSize, err := parseSize(minSizeStr)
+			if err != nil {
+				return fmt.Errorf("invalid min-size: %w", err)
+			}
+			maxSize, err := parseSize(maxSizeStr)
+			if err != nil {
+				return fmt.Errorf("invalid max-size: %w", err)
+			}
+			var maxTotalSize int64
+			if maxTotalSizeStr != "0" && maxTotalSizeStr != "" {
+				maxTotalSize, err = parseSize(maxTotalSizeStr)
+				if err != nil {
+					return fmt.Errorf("invalid max-total-size: %w", err)
+				}
+			}
+
+			// Merge explicit excludes with default excludes
+			excludePatterns = append(excludePatterns, defaultExcludes...)
+			if !noGitignore {
+				patterns, err := loadGitignorePatterns(dir)
+				if err != nil {
+					fmt.Printf("Warning: error loading .gitignore: %v\n", err)
+				} else if patterns != nil {
+					excludePatterns = append(excludePatterns, patterns...)
+				}
+			}
+
+			// Create the project analyzer
+			projectAnalyzer := analyzer.New(
+				dir,
+				includePatterns,
+				excludePatterns,
+				minSize,
+				maxSize,
+				maxFiles,
+				maxTotalSize,
+				workers,
+			)
+
+			if err := projectAnalyzer.CollectFiles(); err != nil {
+				return err
+			}
+
+			// Output directory
+			if format != "stdout" {
+				if outputDir == "" {
+					outputDir = filepath.Join(dir, DefaultConfig.OutputDir)
+				} else if !filepath.IsAbs(outputDir) {
+					outputDir = filepath.Join(dir, outputDir)
+				}
+				// Check if outputDir exists and is not a directory
+				if info, err := os.Stat(outputDir); err == nil {
+					if !info.IsDir() {
+						return fmt.Errorf("output path exists and is not a directory: %s", outputDir)
+					}
+				} else if !os.IsNotExist(err) {
+					return fmt.Errorf("failed to stat output directory: %w", err)
+				}
+				if err := os.MkdirAll(outputDir, 0755); err != nil {
+					return fmt.Errorf("failed to create output directory: %w", err)
+				}
+				relPath, err := filepath.Rel(dir, outputDir)
+				if err == nil && !strings.HasPrefix(relPath, "..") {
+					gitignoreEntry := strings.TrimPrefix(relPath, string(filepath.Separator))
+					if err := ensureGitignoreEntry(dir, gitignoreEntry); err != nil {
+						fmt.Printf("Warning: unable to update .gitignore: %v\n", err)
+					}
+				}
+			}
+
+			// Process files and generate output
+			if strings.HasPrefix(format, "stdout") {
+				stdoutFormat := "txt"
+				if strings.Contains(format, ":") {
+					parts := strings.SplitN(format, ":", 2)
+					if len(parts) == 2 && parts[1] != "" {
+						stdoutFormat = parts[1]
+					}
+				}
+				t0 := time.Now()
+				// Build formatter and fill it as in ProcessFiles
+				fmtr := formatter.NewFormatter(stdoutFormat, "", dir)
+				// Detect technologies, key files, issues, file types
+				technologies := detectTechnologiesLocal(projectAnalyzer.Files)
+				keyFiles := identifyKeyFilesLocal(projectAnalyzer.Files)
+				issues := identifyPotentialIssuesLocal(projectAnalyzer.Files)
+				fileTypes := collectFileExtensionsLocal(projectAnalyzer.Files)
+				// Add files
+				for _, file := range projectAnalyzer.Files {
+					absPath := filepath.Join(dir, file)
+					fileInfo, err := os.Stat(absPath)
+					if err != nil {
+						continue
+					}
+					content, _ := os.ReadFile(absPath)
+					fmtr.AddFile(formatter.FileInfo{
+						Path:     file,
+						Size:     fileInfo.Size(),
+						Content:  string(content),
+						Language: detectFileLanguageLocal(file),
+					})
+				}
+				// Set stats and structure
+				structure, _ := projectAnalyzer.GenerateProjectStructure()
+				duration := time.Since(t0)
+				if duration == 0 {
+					duration = time.Second
+				}
+				fmtr.SetStatistics(len(projectAnalyzer.Files), projectAnalyzer.TotalSize, projectAnalyzer.TokenCount, projectAnalyzer.CharCount, duration)
+				fmtr.SetTechnologies(technologies)
+				fmtr.SetKeyFiles(keyFiles)
+				fmtr.SetIssues(issues)
+				fmtr.SetFileTypes(fileTypes)
+				fmtr.SetProjectStructure(structure)
+				output, err := fmtr.GetFormattedContent()
+				if err != nil {
+					return err
+				}
+				fmt.Print(output)
+				return nil
+			} else {
+				stats, err := projectAnalyzer.ProcessFiles(outputDir, format)
+				if err != nil {
+					return err
+				}
+				printStatistics(stats)
+				return nil
+			}
+		},
+	}
+
+	promptCmd.Flags().StringSliceP("exclude", "e", nil, "Exclude files matching these patterns (e.g., *.md, src/)")
+	promptCmd.Flags().StringSliceP("include", "i", nil, "Include only files matching these patterns")
+	promptCmd.Flags().String("min-size", DefaultConfig.MinSize, "Minimum file size (e.g., 1KB, 500B)")
+	promptCmd.Flags().String("max-size", DefaultConfig.MaxSize, "Maximum file size (e.g., 100MB, 1GB)")
+	promptCmd.Flags().Bool("no-gitignore", !DefaultConfig.GitIgnore, "Ignore .gitignore file")
+	promptCmd.Flags().StringP("output", "o", DefaultConfig.OutputDir, "Output directory for the prompt file")
+	promptCmd.Flags().Int("workers", DefaultConfig.WorkerCount, "Number of parallel workers (default: number of CPUs)")
+	promptCmd.Flags().Int("max-files", DefaultConfig.MaxFiles, "Maximum number of files to process (default: 500, 0 = unlimited)")
+	promptCmd.Flags().String("max-total-size", DefaultConfig.MaxTotalSize, "Maximum total size of all files (e.g., 10MB, 0 = unlimited)")
+	promptCmd.Flags().StringP("format", "f", DefaultConfig.OutputFormat, "Output format (txt, json, xml, or stdout[:txt|json|xml])")
+
+	// GRAPH COMMAND
+	var graphCmd = &cobra.Command{
+		Use:   "graph [project path]",
+		Short: "Generate a project dependency graph/arborescence",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			format, _ := cmd.Flags().GetString("format")
+			outputArg, _ := cmd.Flags().GetString("output")
+			projectPath := args[0]
+			if !filepath.IsAbs(projectPath) {
+				absDir, err := filepath.Abs(projectPath)
+				if err == nil {
+					projectPath = absDir
+				}
+			}
+			an := analyzer.New(
+				projectPath,
+				[]string{},
+				append([]string{}, defaultExcludes...),
+				0, 0, 0, 0, 1,
+			)
+			if err := an.CollectFiles(); err != nil {
+				return err
+			}
+			structure, err := an.GenerateProjectStructure()
+			if err != nil {
+				return err
+			}
+			var ext, content string
+			var internalDeps, externalDeps int
+			t0 := time.Now()
+			// Handle stdout and subformats
+			if strings.HasPrefix(format, "stdout") {
+				stdoutFormat := "dot"
+				if strings.Contains(format, ":") {
+					parts := strings.SplitN(format, ":", 2)
+					if len(parts) == 2 && parts[1] != "" {
+						stdoutFormat = parts[1]
+					}
+				}
+				switch stdoutFormat {
+				case "dot":
+					tree := utils.BuildTree(an.Files, filepath.Base(projectPath))
+					content = utils.GenerateDotOutput(tree)
+				case "json":
+					tree := utils.BuildTree(an.Files, filepath.Base(projectPath))
+					content = utils.GenerateJSONTreeOutput(tree)
+				case "xml":
+					tree := utils.BuildTree(an.Files, filepath.Base(projectPath))
+					content = utils.GenerateXMLTreeOutput(tree)
+				case "txt":
+					content = structure
+				default:
+					return fmt.Errorf("unsupported stdout subformat: %s", stdoutFormat)
+				}
+				fmt.Print(content)
+				return nil
+			}
+			switch format {
+			case "dot":
+				ext = "dot"
+				tree := utils.BuildTree(an.Files, filepath.Base(projectPath))
+				content = utils.GenerateDotOutput(tree)
+				internalDeps = countDotEdges(content)
+			case "json":
+				ext = "json"
+				tree := utils.BuildTree(an.Files, filepath.Base(projectPath))
+				content = utils.GenerateJSONTreeOutput(tree)
+				internalDeps = countInternalDepsFromTree(tree)
+			case "xml":
+				ext = "xml"
+				tree := utils.BuildTree(an.Files, filepath.Base(projectPath))
+				content = utils.GenerateXMLTreeOutput(tree)
+				internalDeps = countInternalDepsFromTree(tree)
+			case "txt":
+				ext = "txt"
+				content = structure
+				internalDeps = countInternalDepsFromTree(utils.BuildTree(an.Files, filepath.Base(projectPath)))
+			default:
+				return fmt.Errorf("unsupported format: %s", format)
+			}
+			timestamp := time.Now().Format("20060102_150405")
+			var outputPath string
+			if outputArg == "" {
+				outputDir := filepath.Join(projectPath, DefaultConfig.OutputDir)
+				if info, err := os.Stat(outputDir); err == nil {
+					if !info.IsDir() {
+						return fmt.Errorf("output path exists and is not a directory: %s", outputDir)
+					}
+				} else if !os.IsNotExist(err) {
+					return fmt.Errorf("failed to stat output directory: %w", err)
+				}
+				if err := os.MkdirAll(outputDir, 0755); err != nil {
+					return fmt.Errorf("failed to create output directory: %w", err)
+				}
+				if err := ensureGitignoreEntry(projectPath, DefaultConfig.OutputDir); err != nil {
+					fmt.Printf("Warning: unable to update .gitignore: %v\n", err)
+				}
+				outputPath = filepath.Join(outputDir, fmt.Sprintf("graph_%s.%s", timestamp, ext))
+			} else {
+				info, err := os.Stat(outputArg)
+				if err == nil && info.IsDir() {
+					outputPath = filepath.Join(outputArg, fmt.Sprintf("graph_%s.%s", timestamp, ext))
+				} else if err == nil && !info.IsDir() {
+					outputPath = outputArg // treat as file
+				} else if os.IsNotExist(err) {
+					if strings.HasSuffix(outputArg, "."+ext) {
+						outputPath = outputArg
+					} else {
+						// Check if outputArg exists as a file (should not happen, but for safety)
+						if info, err := os.Stat(outputArg); err == nil && !info.IsDir() {
+							return fmt.Errorf("output path exists and is not a directory: %s", outputArg)
+						}
+						if err := os.MkdirAll(outputArg, 0755); err != nil {
+							return fmt.Errorf("failed to create output directory: %w", err)
+						}
+						outputPath = filepath.Join(outputArg, fmt.Sprintf("graph_%s.%s", timestamp, ext))
+					}
+				} else {
+					return fmt.Errorf("invalid output path: %w", err)
+				}
+			}
+			if err := os.WriteFile(outputPath, []byte(content), 0644); err != nil {
+				return fmt.Errorf("failed to write output file: %w", err)
+			}
+			// Dépendances externes : simple heuristique sur fichiers connus
+			externalDeps = countExternalDeps(projectPath)
+			// Statistiques
+			elapsed := time.Since(t0)
+			stats := analyzer.StatsResult{
+				FileCount:   len(an.Files),
+				TotalSize:   an.TotalSize,
+				ProcessTime: elapsed,
+				OutputPath:  outputPath,
+				FilesPerSec: float64(len(an.Files)) / elapsed.Seconds(),
+				TokenCount:  an.TokenCount,
+				CharCount:   an.CharCount,
+				KeyFiles:    []string{},
+				Issues:      []string{},
+				FileTypes:   map[string]int{},
+			}
+			fmt.Println()
+			printStatistics(stats)
+			fmt.Printf("Internal dependencies: %d\n", internalDeps)
+			fmt.Printf("External dependencies: %d\n", externalDeps)
+			fmt.Println()
+			return nil
+		},
+	}
+	graphCmd.Flags().StringP("format", "f", "dot", "Output format for the graph (dot, json, xml, txt, or stdout[:dot|json|xml|txt])")
+	graphCmd.Flags().StringP("output", "o", "", "Output directory or file for the graph (default: pmp_output/)")
+
+	// Ajout de la commande d'autocompletion
+	var completionCmd = &cobra.Command{
+		Use:   "completion [bash|zsh|fish|powershell]",
+		Short: "Generate shell completion script",
+		Long: `To load completions:
+
+Bash:
+  $ source <(pmp completion bash)
+  # To load completions for each session, execute once:
+  # Linux:
+  $ pmp completion bash > /etc/bash_completion.d/pmp
+  # macOS:
+  $ pmp completion bash > /usr/local/etc/bash_completion.d/pmp
+
+Zsh:
+  $ echo 'autoload -U compinit; compinit' >> ~/.zshrc
+  $ pmp completion zsh > "${fpath[1]}/_pmp"
+
+Fish:
+  $ pmp completion fish | source
+  $ pmp completion fish > ~/.config/fish/completions/pmp.fish
+
+PowerShell:
+  PS> pmp completion powershell | Out-String | Invoke-Expression
+  # To load for every session, add above to $PROFILE
+`,
+		Args:      cobra.ExactValidArgs(1),
+		ValidArgs: []string{"bash", "zsh", "fish", "powershell"},
+		Run: func(cmd *cobra.Command, args []string) {
+			switch args[0] {
+			case "bash":
+				cmd.Root().GenBashCompletion(os.Stdout)
+			case "zsh":
+				cmd.Root().GenZshCompletion(os.Stdout)
+			case "fish":
+				cmd.Root().GenFishCompletion(os.Stdout, true)
+			case "powershell":
+				cmd.Root().GenPowerShellCompletionWithDesc(os.Stdout)
+			}
+		},
+	}
+
+	rootCmd.AddCommand(promptCmd)
+	rootCmd.AddCommand(graphCmd)
+	rootCmd.AddCommand(completionCmd)
+
+	// Binary cache init/save
+	binaryCache := binary.NewCache()
+	if err := binaryCache.Load(); err != nil {
+		fmt.Printf("Warning: error loading binary cache: %v\n", err)
+	}
+	defer func() {
+		if err := binaryCache.Save(); err != nil {
+			fmt.Printf("Warning: error saving binary cache: %v\n", err)
+		}
+	}()
+
+	if err := rootCmd.Execute(); err != nil {
+		color.Red("❌ Error: %v", err)
+		os.Exit(1)
+	}
+}
+
+// Fonctions utilitaires pour compter les dépendances internes/externes
+// (à placer en bas du fichier)
+
+// Compte les arêtes dans le DOT (dépendances internes)
+func countDotEdges(dot string) int {
+	count := 0
+	for _, line := range strings.Split(dot, "\n") {
+		if strings.Contains(line, "->") {
+			count++
+		}
+	}
+	return count
+}
+
+// Compte les dépendances internes à partir de l'arbre
+func countInternalDepsFromTree(tree *utils.Directory) int {
+	count := 0
+	for _, sub := range tree.SubDirs {
+		count += countInternalDepsFromTree(sub)
+	}
+	count += len(tree.Files)
+	return count
+}
+
+// Compte les dépendances externes (heuristique simple)
+func countExternalDeps(projectPath string) int {
+	count := 0
+	depFiles := []string{"go.mod", "package.json", "requirements.txt"}
+	for _, depFile := range depFiles {
+		path := filepath.Join(projectPath, depFile)
+		if _, err := os.Stat(path); err == nil {
+			// Compter les dépendances dans le fichier
+			lines, err := os.ReadFile(path)
+			if err == nil {
+				for _, line := range strings.Split(string(lines), "\n") {
+					line = strings.TrimSpace(line)
+					if depFile == "go.mod" && strings.HasPrefix(line, "require ") {
+						count++
+					}
+					if depFile == "package.json" && (strings.Contains(line, "dependencies") || strings.Contains(line, "devDependencies")) {
+						count++
+					}
+					if depFile == "requirements.txt" && line != "" && !strings.HasPrefix(line, "#") {
+						count++
+					}
+				}
+			}
+		}
+	}
+	return count
+}
+
+// Local copies of analyzer helpers for stdout output (since originals are not exported)
+func detectTechnologiesLocal(files []string) []string {
+	technologies := make(map[string]bool)
+	for _, file := range files {
+		switch {
+		case strings.HasSuffix(file, ".go"):
+			technologies["Go"] = true
+		case strings.HasSuffix(file, ".js"):
+			technologies["JavaScript"] = true
+		case strings.HasSuffix(file, ".ts"):
+			technologies["TypeScript"] = true
+		case strings.HasSuffix(file, ".py"):
+			technologies["Python"] = true
+		case strings.HasSuffix(file, ".java"):
+			technologies["Java"] = true
+		case strings.HasSuffix(file, ".rb"):
+			technologies["Ruby"] = true
+		case strings.HasSuffix(file, ".php"):
+			technologies["PHP"] = true
+		case strings.HasSuffix(file, ".cs"):
+			technologies["C#"] = true
+		case strings.HasSuffix(file, ".c"), strings.HasSuffix(file, ".cpp"), strings.HasSuffix(file, ".h"):
+			technologies["C/C++"] = true
+		case strings.HasSuffix(file, ".html"):
+			technologies["HTML"] = true
+		case strings.HasSuffix(file, ".css"):
+			technologies["CSS"] = true
+		}
+		switch filepath.Base(file) {
+		case "package.json":
+			technologies["Node.js"] = true
+		case "go.mod":
+			technologies["Go"] = true
+		case "requirements.txt":
+			technologies["Python"] = true
+		case "Gemfile":
+			technologies["Ruby"] = true
+		case "composer.json":
+			technologies["PHP"] = true
+		}
+	}
+	result := make([]string, 0, len(technologies))
+	for tech := range technologies {
+		result = append(result, tech)
+	}
+	return result
+}
+
+func identifyKeyFilesLocal(files []string) []string {
+	keyFiles := make([]string, 0)
+	for _, file := range files {
+		basename := filepath.Base(file)
+		switch basename {
+		case "main.go", "app.js", "index.js", "package.json", "go.mod", "requirements.txt",
+			"setup.py", "Makefile", "Dockerfile", "docker-compose.yml", "README.md":
+			keyFiles = append(keyFiles, file)
+		}
+	}
+	return keyFiles
+}
+
+func identifyPotentialIssuesLocal(files []string) []string {
+	issues := make([]string, 0)
+	hasReadme := false
+	for _, file := range files {
+		if strings.Contains(strings.ToLower(filepath.Base(file)), "readme") {
+			hasReadme = true
+			break
+		}
+	}
+	if !hasReadme {
+		issues = append(issues, "Missing README file")
+	}
+	return issues
+}
+
+func collectFileExtensionsLocal(files []string) map[string]int {
+	extensions := make(map[string]int)
+	for _, file := range files {
+		ext := filepath.Ext(file)
+		if ext == "" {
+			ext = "(no extension)"
+		}
+		extensions[ext]++
+	}
+	return extensions
+}
+
+func detectFileLanguageLocal(filename string) string {
+	ext := filepath.Ext(filename)
 	switch strings.ToLower(ext) {
 	case ".go":
 		return "Go"
@@ -267,466 +805,5 @@ func detectFileLanguage(filename string) string {
 		return "SQL"
 	default:
 		return "Plain Text"
-	}
-}
-
-// Fonction qui vérifie si un fichier correspond aux patterns d'inclusion/exclusion
-func matchesFilters(filePath string, includePatterns, excludePatterns []string) bool {
-	// Si des patterns d'inclusion sont spécifiés, le fichier doit correspondre à l'un d'eux
-	if len(includePatterns) > 0 {
-		isIncluded := false
-		for _, pattern := range includePatterns {
-			match, err := doublestar.Match(pattern, filePath)
-			if err == nil && match {
-				isIncluded = true
-				break
-			}
-		}
-		if !isIncluded {
-			return false
-		}
-	}
-
-	// Si des patterns d'exclusion sont spécifiés, le fichier ne doit correspondre à aucun d'eux
-	for _, pattern := range excludePatterns {
-		match, err := doublestar.Match(pattern, filePath)
-		if err == nil && match {
-			return false
-		}
-	}
-
-	return true
-}
-
-func main() {
-	// Initialize binary cache
-	binaryCache := binary.NewCache()
-
-	// Load binary cache
-	if err := binaryCache.Load(); err != nil {
-		fmt.Printf("Warning: error loading binary cache: %v\n", err)
-	}
-
-	// Save binary cache when done
-	defer func() {
-		if err := binaryCache.Save(); err != nil {
-			fmt.Printf("Warning: error saving binary cache: %v\n", err)
-		}
-	}()
-
-	app := &cli.App{
-		Name:    "pmp",
-		Usage:   "Generate a project prompt for AI",
-		Version: Version,
-		Description: `Prompt My Project (PMP) analyzes your project and generates a formatted
-prompt for AI assistants. It allows excluding binary files, respecting .gitignore rules,
-and offers advanced filtering options.
-
-Usage examples:
-   pmp /path/to/project          # Analyze the specified project
-   pmp . --include "*.go"        # Analyze only .go files in the current project
-   pmp /path/project --exclude "test/*"  # Exclude files in the test folder
-   pmp /path/project --output ~/prompts  # Specify the output directory`,
-		Flags: []cli.Flag{
-			&cli.StringSliceFlag{
-				Name:    "exclude",
-				Aliases: []string{"e"},
-				Usage:   "Exclude files matching these patterns (e.g., *.md, src/)",
-			},
-			&cli.StringSliceFlag{
-				Name:    "include",
-				Aliases: []string{"i"},
-				Usage:   "Include only files matching these patterns",
-			},
-			&cli.StringFlag{
-				Name:  "min-size",
-				Usage: "Minimum file size (e.g., 1KB, 500B)",
-				Value: DefaultConfig.MinSize,
-			},
-			&cli.StringFlag{
-				Name:  "max-size",
-				Usage: "Maximum file size (e.g., 100MB, 1GB)",
-				Value: DefaultConfig.MaxSize,
-			},
-			&cli.BoolFlag{
-				Name:  "no-gitignore",
-				Usage: "Ignore .gitignore file",
-				Value: !DefaultConfig.GitIgnore,
-			},
-			&cli.StringFlag{
-				Name:    "output",
-				Aliases: []string{"o"},
-				Usage:   "Output directory for the prompt file",
-				Value:   DefaultConfig.OutputDir,
-			},
-			&cli.IntFlag{
-				Name:  "workers",
-				Usage: "Number of parallel workers (default: number of CPUs)",
-				Value: DefaultConfig.WorkerCount,
-			},
-			&cli.IntFlag{
-				Name:  "max-files",
-				Usage: "Maximum number of files to process (default: 500, 0 = unlimited)",
-				Value: DefaultConfig.MaxFiles,
-			},
-			&cli.StringFlag{
-				Name:  "max-total-size",
-				Usage: "Maximum total size of all files (e.g., 10MB, 0 = unlimited)",
-				Value: DefaultConfig.MaxTotalSize,
-			},
-			&cli.StringFlag{
-				Name:    "format",
-				Aliases: []string{"f"},
-				Usage:   "Output format (txt, json, xml, or stdout)",
-				Value:   DefaultConfig.OutputFormat,
-			},
-		},
-		Action: func(c *cli.Context) error {
-			// If no argument is provided, display help and exit
-			if !c.Args().Present() {
-				return cli.ShowAppHelp(c)
-			}
-
-			// Check for specific format in args
-			var formatOverride string
-			for i, arg := range os.Args {
-				if arg == "--format" || arg == "-f" {
-					if i+1 < len(os.Args) {
-						formatOverride = os.Args[i+1]
-					}
-				}
-			}
-
-			// Check for specific output in args
-			var outputOverride string
-			for i, arg := range os.Args {
-				if arg == "--output" || arg == "-o" {
-					if i+1 < len(os.Args) {
-						outputOverride = os.Args[i+1]
-					}
-				}
-			}
-
-			// Check for min-size arg
-			var minSizeArg string
-			for i, arg := range os.Args {
-				if arg == "--min-size" {
-					if i+1 < len(os.Args) {
-						minSizeArg = os.Args[i+1]
-					}
-				}
-			}
-
-			// Check for include patterns in args
-			var includePatterns []string
-			for i, arg := range os.Args {
-				if arg == "--include" || arg == "-i" {
-					if i+1 < len(os.Args) && !strings.HasPrefix(os.Args[i+1], "-") {
-						includePatterns = append(includePatterns, os.Args[i+1])
-					}
-				}
-			}
-
-			// Check for exclude patterns in args
-			var excludePatterns []string
-			for i, arg := range os.Args {
-				if arg == "--exclude" || arg == "-e" {
-					if i+1 < len(os.Args) && !strings.HasPrefix(os.Args[i+1], "-") {
-						excludePatterns = append(excludePatterns, os.Args[i+1])
-					}
-				}
-			}
-
-			// Use the format override if available
-			format := c.String("format")
-			if formatOverride != "" {
-				format = formatOverride
-			}
-
-			// If an argument is provided, proceed with the analysis
-			// Get the project path
-			dir := c.Args().First()
-			if !filepath.IsAbs(dir) {
-				absDir, err := filepath.Abs(dir)
-				if err == nil {
-					dir = absDir
-				}
-			}
-
-			// Parse size limits
-			minSizeStr := c.String("min-size")
-			var minSize int64
-			if minSizeArg == "0" {
-				minSize = 0
-			} else if minSizeStr == "0" {
-				minSize = 0
-			} else {
-				var err error
-				minSize, err = parseSize(minSizeStr)
-				if err != nil {
-					return fmt.Errorf("invalid min-size: %w", err)
-				}
-			}
-
-			maxSize, err := parseSize(c.String("max-size"))
-			if err != nil {
-				return fmt.Errorf("invalid max-size: %w", err)
-			}
-
-			// Parse total size limit
-			maxTotalSizeStr := c.String("max-total-size")
-			var maxTotalSize int64
-			if maxTotalSizeStr != "0" && maxTotalSizeStr != "" {
-				maxTotalSize, err = parseSize(maxTotalSizeStr)
-				if err != nil {
-					return fmt.Errorf("invalid max-total-size: %w", err)
-				}
-			}
-
-			// Merge explicit excludes with default excludes
-			excludePatterns = append(excludePatterns, defaultExcludes...)
-
-			if !c.Bool("no-gitignore") {
-				patterns, err := loadGitignorePatterns(dir)
-				if err != nil {
-					fmt.Printf("Warning: error loading .gitignore: %v\n", err)
-				} else if patterns != nil {
-					excludePatterns = append(excludePatterns, patterns...)
-				}
-			}
-
-			// Create the project analyzer
-			projectAnalyzer := analyzer.New(
-				dir,
-				c.StringSlice("include"),
-				excludePatterns,
-				minSize,
-				maxSize,
-				c.Int("max-files"),
-				maxTotalSize,
-				c.Int("workers"),
-			)
-
-			// Collect files
-			if err := projectAnalyzer.CollectFiles(); err != nil {
-				return err
-			}
-
-			// In stdout format we don't need an output directory
-			var outputDir string
-			if format != "stdout" {
-				// Determine output directory
-				outputDir = c.String("output")
-				if outputOverride != "" {
-					outputDir = outputOverride
-				}
-
-				if outputDir == "" {
-					outputDir = filepath.Join(dir, DefaultConfig.OutputDir)
-				} else if !filepath.IsAbs(outputDir) {
-					outputDir = filepath.Join(dir, outputDir)
-				}
-
-				// Check if output directory is in the project
-				relPath, err := filepath.Rel(dir, outputDir)
-				if err == nil && !strings.HasPrefix(relPath, "..") {
-					gitignoreEntry := strings.TrimPrefix(relPath, string(filepath.Separator))
-					if err := ensureGitignoreEntry(dir, gitignoreEntry); err != nil {
-						fmt.Printf("Warning: unable to update .gitignore: %v\n", err)
-					}
-				}
-
-				// Create the output directory if it doesn't exist
-				if err := os.MkdirAll(outputDir, 0755); err != nil {
-					return fmt.Errorf("failed to create output directory: %w", err)
-				}
-			}
-
-			// Process files and generate output
-			if format == "stdout" {
-				// For stdout format, we don't need an output directory
-				// We need to capture the normal output to prevent it from showing
-				originalStdout := os.Stdout
-				originalStderr := os.Stderr
-
-				// Create a null device to redirect unnecessary output
-				nullDev, _ := os.Open(os.DevNull)
-				defer nullDev.Close()
-
-				// Redirect stdout and stderr to /dev/null when running ProcessFiles
-				// to prevent statistics and warning messages from showing
-				os.Stdout = nullDev
-				os.Stderr = nullDev
-
-				// Process files in silent mode
-				stats, err := projectAnalyzer.ProcessFiles("", format)
-
-				// Restore original stdout and stderr
-				os.Stdout = originalStdout
-				os.Stderr = originalStderr
-
-				// Check for errors
-				if err != nil {
-					return err
-				}
-
-				// For stdout format, generate content and send directly to stdout without stats
-				fmtr := formatter.NewFormatter(strings.ReplaceAll(format, "stdout", "json"), "", dir)
-
-				// Recalculer les statistiques en fonction des fichiers réellement inclus
-				var totalSize int64
-				var tokenCount int
-				var charCount int
-				var includedFiles []formatter.FileInfo
-				tokenEstimator := utils.NewTokenEstimator()
-
-				// Add files and ensure inclusion/exclusion filters are respected
-				for _, filePath := range projectAnalyzer.Files {
-					// Double-check if the file matches the include/exclude patterns
-					if matchesFilters(filePath, includePatterns, excludePatterns) {
-						absPath := filepath.Join(dir, filePath)
-						fileInfo, err := os.Stat(absPath)
-						if err == nil {
-							content, _ := os.ReadFile(absPath)
-
-							// Calculate stats for filtered files
-							totalSize += fileInfo.Size()
-							charCount += len(content)
-							tokens, _ := tokenEstimator.EstimateFileTokens(absPath, true)
-							tokenCount += tokens
-
-							fileData := formatter.FileInfo{
-								Path:     filePath,
-								Size:     fileInfo.Size(),
-								Content:  string(content),
-								Language: detectFileLanguage(filePath),
-							}
-
-							// Ajoute le fichier au formateur
-							fmtr.AddFile(fileData)
-							includedFiles = append(includedFiles, fileData)
-						}
-					}
-				}
-
-				// Update statistics with correct filtered values
-				fmtr.SetStatistics(
-					len(includedFiles), // Nombre correct de fichiers inclus
-					totalSize,
-					tokenCount,
-					charCount,
-					stats.ProcessTime,
-				)
-
-				// Set metadata
-				fmtr.SetTechnologies(stats.Technologies)
-				fmtr.SetKeyFiles(stats.KeyFiles)
-				fmtr.SetIssues(stats.Issues)
-				fmtr.SetFileTypes(stats.FileTypes)
-
-				// Set structure
-				structure, err := projectAnalyzer.GenerateProjectStructure()
-				if err != nil {
-					return fmt.Errorf("error generating project structure: %w", err)
-				}
-				fmtr.SetProjectStructure(structure)
-
-				// Get formatted content and output directly to stdout
-				content, err := fmtr.GetFormattedContent()
-				if err != nil {
-					return fmt.Errorf("error formatting content: %w", err)
-				}
-
-				// Write directly to stdout without any additional formatting or stats
-				fmt.Print(content)
-				return nil
-			} else {
-				// For normal formats (not stdout), process and write to file
-				stats, err := projectAnalyzer.ProcessFiles(outputDir, format)
-				if err != nil {
-					return err
-				}
-
-				// Get the formatter
-				fmtr := formatter.NewFormatter(format, outputDir, dir)
-
-				// Recalculer les statistiques en fonction des fichiers réellement inclus
-				var totalSize int64
-				var tokenCount int
-				var charCount int
-				var includedFiles []formatter.FileInfo
-				tokenEstimator := utils.NewTokenEstimator()
-
-				// Add files and ensure inclusion/exclusion filters are respected
-				for _, filePath := range projectAnalyzer.Files {
-					// Double-check if the file matches the include/exclude patterns
-					if matchesFilters(filePath, includePatterns, excludePatterns) {
-						absPath := filepath.Join(dir, filePath)
-						fileInfo, err := os.Stat(absPath)
-						if err == nil {
-							content, _ := os.ReadFile(absPath)
-
-							// Calculate stats for filtered files
-							totalSize += fileInfo.Size()
-							charCount += len(content)
-							tokens, _ := tokenEstimator.EstimateFileTokens(absPath, true)
-							tokenCount += tokens
-
-							fileData := formatter.FileInfo{
-								Path:     filePath,
-								Size:     fileInfo.Size(),
-								Content:  string(content),
-								Language: detectFileLanguage(filePath),
-							}
-
-							// Ajoute le fichier au formateur
-							fmtr.AddFile(fileData)
-							includedFiles = append(includedFiles, fileData)
-						}
-					}
-				}
-
-				// Update statistics with correct filtered values
-				fmtr.SetStatistics(
-					len(includedFiles), // Nombre correct de fichiers inclus
-					totalSize,
-					tokenCount,
-					charCount,
-					stats.ProcessTime,
-				)
-
-				// Set metadata
-				fmtr.SetTechnologies(stats.Technologies)
-				fmtr.SetKeyFiles(stats.KeyFiles)
-				fmtr.SetIssues(stats.Issues)
-				fmtr.SetFileTypes(stats.FileTypes)
-
-				// Set structure
-				structure, err := projectAnalyzer.GenerateProjectStructure()
-				if err != nil {
-					return fmt.Errorf("error generating project structure: %w", err)
-				}
-				fmtr.SetProjectStructure(structure)
-
-				// Write to file
-				outputPath, err := fmtr.WriteToFile()
-				if err != nil {
-					return fmt.Errorf("error writing output file: %w", err)
-				}
-
-				// Update stats output path
-				stats.OutputPath = outputPath
-
-				// Display statistics
-				printStatistics(stats)
-				return nil
-			}
-		},
-	}
-
-	// Run the application
-	if err := app.Run(os.Args); err != nil {
-		color.Red("❌ Error: %v", err)
-		os.Exit(1)
 	}
 }

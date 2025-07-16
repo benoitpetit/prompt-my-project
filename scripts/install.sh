@@ -170,3 +170,29 @@ cd - > /dev/null
 rm -rf $TMP_DIR
 
 echo "✅ Installation complete! You can use 'pmp --help' to see available options."
+
+# Installer l'autocomplétion Bash si possible
+if command -v pmp >/dev/null 2>&1; then
+    if [ -d /etc/bash_completion.d ]; then
+        pmp completion bash | sudo tee /etc/bash_completion.d/pmp > /dev/null
+        echo "✅ Bash completion installed in /etc/bash_completion.d/pmp"
+    elif [ -d /usr/local/etc/bash_completion.d ]; then
+        pmp completion bash | sudo tee /usr/local/etc/bash_completion.d/pmp > /dev/null
+        echo "✅ Bash completion installed in /usr/local/etc/bash_completion.d/pmp"
+    else
+        echo "⚠️  Could not find bash_completion.d directory. Please install manually:"
+        echo "    pmp completion bash > /etc/bash_completion.d/pmp"
+    fi
+    # Zsh (si fpath existe)
+    if [ -n "$ZSH_VERSION" ] && [ -n "${fpath[1]}" ]; then
+        pmp completion zsh > "${fpath[1]}/_pmp"
+        echo "✅ Zsh completion installed in ${fpath[1]}/_pmp"
+    fi
+fi
+
+# Ajoute la complétion pour ./pmp si le script est sourcé dans le dossier courant
+if [ -f /etc/bash_completion.d/pmp ]; then
+    echo 'complete -o default -F __start_pmp ./pmp' | sudo tee -a /etc/bash_completion.d/pmp > /dev/null
+elif [ -f /usr/local/etc/bash_completion.d/pmp ]; then
+    echo 'complete -o default -F __start_pmp ./pmp' | sudo tee -a /usr/local/etc/bash_completion.d/pmp > /dev/null
+fi

@@ -230,3 +230,19 @@ function Test-CommandExists {
 if (-not (Test-CommandExists "curl")) {
     Write-Host "L'outil curl n'est pas disponible. Utilisation des cmdlets PowerShell à la place." -ForegroundColor Yellow
 }
+
+# Installer l'autocomplétion PowerShell si possible
+$pmpPath = Get-Command pmp -ErrorAction SilentlyContinue
+if ($pmpPath) {
+    $profilePath = $PROFILE
+    $completionCmd = "pmp completion powershell | Out-String | Invoke-Expression"
+    if (-not (Test-Path $profilePath)) {
+        New-Item -ItemType File -Path $profilePath -Force | Out-Null
+    }
+    if (-not (Select-String -Path $profilePath -Pattern "pmp completion powershell" -Quiet)) {
+        Add-Content -Path $profilePath -Value "`n$completionCmd"
+        Write-Host "✅ PowerShell completion added to your profile ($profilePath)."
+    } else {
+        Write-Host "ℹ️  PowerShell completion already present in your profile."
+    }
+}
