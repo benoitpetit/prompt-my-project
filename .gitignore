@@ -19,6 +19,10 @@ go.work
 # build file
 pmp
 .pmprc
+prompt-my-project
 
 # Added by Prompt My Project (PMP) - https://github.com/benoitpetit/prompt-my-project
 pmp_output
+
+# roadmap
+ROADMAP*

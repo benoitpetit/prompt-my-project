@@ -71,6 +71,8 @@ type Formatter struct {
 	projectDir    string
 	headerContent string
 	structure     string
+	filePrefix    string // Optional custom prefix for output filename
+	projectName   string // Optional custom project name
 }
 
 // NewFormatter creates a new formatter for the specified format
@@ -154,6 +156,19 @@ func (f *Formatter) SetIssues(issues []string) {
 	f.report.Issues = issues
 }
 
+// SetFilePrefix sets a custom prefix for the output filename
+func (f *Formatter) SetFilePrefix(prefix string) {
+	f.filePrefix = prefix
+}
+
+// SetProjectName sets a custom project name
+func (f *Formatter) SetProjectName(name string) {
+	f.projectName = name
+	if name != "" {
+		f.report.ProjectInfo.Name = name
+	}
+}
+
 // AddFile adds a file to the report
 func (f *Formatter) AddFile(fileInfo FileInfo) {
 	f.report.Files = append(f.report.Files, struct {
@@ -176,9 +191,17 @@ func (f *Formatter) WriteToFile() (string, error) {
 		return "", fmt.Errorf("failed to create output directory: %w", err)
 	}
 
-	// Generate timestamp for the filename
+	// Build filename with optional custom prefix
+	var filename string
 	timestamp := time.Now().Format("20060102_150405")
-	filename := fmt.Sprintf("prompt_%s.%s", timestamp, f.format)
+
+	if f.filePrefix != "" {
+		// Custom prefix: repoName_prompt_timestamp
+		filename = fmt.Sprintf("%s_prompt_%s.%s", f.filePrefix, timestamp, f.format)
+	} else {
+		// Default: prompt_timestamp
+		filename = fmt.Sprintf("prompt_%s.%s", timestamp, f.format)
+	}
 	outputPath := filepath.Join(f.outputDir, filename)
 
 	var content []byte

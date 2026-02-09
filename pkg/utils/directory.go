@@ -96,7 +96,7 @@ func printDirectory(dir *Directory, builder *strings.Builder, prefix string, isL
 	// Sort files and directories for consistent output
 	sortedFiles := make([]string, len(dir.Files))
 	copy(sortedFiles, dir.Files)
-	// strings.Sort(sortedFiles) // Would need to implement
+	SortStrings(sortedFiles) // Use optimized sort
 
 	// Print files
 	for i, file := range sortedFiles {
