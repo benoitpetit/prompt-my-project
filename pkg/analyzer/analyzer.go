@@ -32,6 +32,8 @@ type ProjectAnalyzer struct {
 	TokenCount      int
 	CharCount       int
 	BinaryCache     *binary.Cache
+	FilePrefix      string // Optional prefix for output filename (e.g., repo name for GitHub)
+	ProjectName     string // Optional custom project name (e.g., for GitHub repos)
 }
 
 // StatsResult represents statistics from project analysis
@@ -79,7 +81,7 @@ func New(
 func (pa *ProjectAnalyzer) CollectFiles() error {
 	// Load binary cache
 	if err := pa.BinaryCache.Load(); err != nil {
-		fmt.Printf("Warning: error loading binary cache: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Warning: error loading binary cache: %v\n", err)
 	}
 
 	// Collect files
@@ -90,7 +92,7 @@ func (pa *ProjectAnalyzer) CollectFiles() error {
 
 	// Limit the number of files
 	if pa.MaxFiles > 0 && len(files) > pa.MaxFiles {
-		fmt.Printf("Limiting to %d files (from %d total)\n", pa.MaxFiles, len(files))
+		fmt.Fprintf(os.Stderr, "Limiting to %d files (from %d total)\n", pa.MaxFiles, len(files))
 		files = files[:pa.MaxFiles]
 	}
 
@@ -105,7 +107,7 @@ func (pa *ProjectAnalyzer) CollectFiles() error {
 
 	// Check total size limit
 	if pa.MaxTotalSize > 0 && totalSize > pa.MaxTotalSize {
-		fmt.Printf("Warning: Total size exceeds limit: %s > %s\n",
+		fmt.Fprintf(os.Stderr, "Warning: Total size exceeds limit: %s > %s\n",
 			humanize.Bytes(uint64(totalSize)),
 			humanize.Bytes(uint64(pa.MaxTotalSize)))
 
@@ -147,7 +149,7 @@ func (pa *ProjectAnalyzer) CollectFiles() error {
 			}
 		}
 
-		fmt.Printf("Reduced file count from %d to %d to fit size limit\n", len(filesWithSize), len(files))
+		fmt.Fprintf(os.Stderr, "Reduced file count from %d to %d to fit size limit\n", len(filesWithSize), len(files))
 	}
 
 	pa.Files = files
@@ -245,7 +247,7 @@ func (pa *ProjectAnalyzer) collectFiles() ([]string, error) {
 
 	// Save binary cache
 	if err := pa.BinaryCache.Save(); err != nil {
-		fmt.Printf("Warning: error saving binary cache: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Warning: error saving binary cache: %v\n", err)
 	}
 
 	return result, err
@@ -253,8 +255,12 @@ func (pa *ProjectAnalyzer) collectFiles() ([]string, error) {
 
 // GenerateProjectStructure creates a string representation of the project structure
 func (pa *ProjectAnalyzer) GenerateProjectStructure() (string, error) {
-	// Build tree
-	root := utils.BuildTree(pa.Files, filepath.Base(pa.Dir))
+	// Build tree - use ProjectName if set, otherwise directory basename
+	projectName := pa.ProjectName
+	if projectName == "" {
+		projectName = filepath.Base(pa.Dir)
+	}
+	root := utils.BuildTree(pa.Files, projectName)
 	return utils.GenerateTreeOutput(root), nil
 }
 
@@ -266,13 +272,21 @@ func (pa *ProjectAnalyzer) ProcessFiles(outputDir string, format string) (StatsR
 	// Create formatter
 	fmtr := formatter.NewFormatter(format, outputDir, pa.Dir)
 
+	// Apply custom project name and file prefix if set (for GitHub repos)
+	if pa.FilePrefix != "" {
+		fmtr.SetFilePrefix(pa.FilePrefix)
+	}
+	if pa.ProjectName != "" {
+		fmtr.SetProjectName(pa.ProjectName)
+	}
+
 	// Process files with worker pool
 	pool := worker.NewPool(pa.WorkerCount)
 	pool.Start()
 
 	// Channel for tracking completion
 	done := make(chan struct{})
-	
+
 	// Ensure pool is properly stopped even if errors occur
 	defer func() {
 		// Make sure we don't leak goroutines
@@ -317,7 +331,7 @@ func (pa *ProjectAnalyzer) ProcessFiles(outputDir string, format string) (StatsR
 	// Process each file
 	for result := range pool.GetResults() {
 		if result.Err != nil {
-			fmt.Printf("Warning: error processing file: %v\n", result.Err)
+			fmt.Fprintf(os.Stderr, "Warning: error processing file: %v\n", result.Err)
 			failedFiles++
 		} else if result.Content != "" {
 			// Add file to format

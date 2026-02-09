@@ -207,21 +207,26 @@ func ensureGitignoreEntry(projectDir, entry string) error {
 	return nil
 }
 
-// Print statistics to the console
-func printStatistics(stats analyzer.StatsResult) {
+// Print statistics to the console (on stderr to not interfere with stdout output)
+func printStatistics(stats analyzer.StatsResult, format string) {
+	// Don't print statistics for stdout formats (used for piping)
+	if strings.HasPrefix(format, "stdout:") {
+		return
+	}
+
 	bold := color.New(color.Bold).SprintFunc()
 	green := color.New(color.FgGreen).SprintFunc()
 
-	fmt.Println()
-	fmt.Println(bold("=== Project Analysis Complete ==="))
-	fmt.Printf("Files processed: %s\n", green(stats.FileCount))
-	fmt.Printf("Total file size: %s\n", green(humanize.Bytes(uint64(stats.TotalSize))))
-	fmt.Printf("Estimated tokens: %s\n", green(stats.TokenCount))
-	fmt.Printf("Characters: %s\n", green(stats.CharCount))
-	fmt.Printf("Processing time: %s\n", green(stats.ProcessTime.Round(time.Millisecond)))
-	fmt.Printf("Files per second: %s\n", green(fmt.Sprintf("%.1f", stats.FilesPerSec)))
-	fmt.Printf("Output file: %s\n", green(stats.OutputPath))
-	fmt.Println()
+	fmt.Fprintln(os.Stderr)
+	fmt.Fprintln(os.Stderr, bold("=== Project Analysis Complete ==="))
+	fmt.Fprintf(os.Stderr, "Files processed: %s\n", green(stats.FileCount))
+	fmt.Fprintf(os.Stderr, "Total file size: %s\n", green(humanize.Bytes(uint64(stats.TotalSize))))
+	fmt.Fprintf(os.Stderr, "Estimated tokens: %s\n", green(stats.TokenCount))
+	fmt.Fprintf(os.Stderr, "Characters: %s\n", green(stats.CharCount))
+	fmt.Fprintf(os.Stderr, "Processing time: %s\n", green(stats.ProcessTime.Round(time.Millisecond)))
+	fmt.Fprintf(os.Stderr, "Files per second: %s\n", green(fmt.Sprintf("%.1f", stats.FilesPerSec)))
+	fmt.Fprintf(os.Stderr, "Output file: %s\n", green(stats.OutputPath))
+	fmt.Fprintln(os.Stderr)
 }
 
 func main() {
@@ -270,7 +275,7 @@ Examples:
   pmp prompt . --include "*.go" --exclude "test" # Focus on Go files, exclude tests
   pmp prompt . --format json --output /tmp       # Save as JSON in custom location
   pmp prompt . --max-files 100 --workers 4       # Limit files and workers for large projects`,
-		Args:  cobra.ExactArgs(1),
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Path
 			dir := args[0]
@@ -332,12 +337,18 @@ Examples:
 			maxFiles, _ := cmd.Flags().GetInt("max-files")
 			maxTotalSizeStr, _ := cmd.Flags().GetString("max-total-size")
 			format, _ := cmd.Flags().GetString("format")
+			// Smart Context flags
+			summaryOnly, _ := cmd.Flags().GetBool("summary-only")
+			focusChanges, _ := cmd.Flags().GetBool("focus-changes")
+			recentCommits, _ := cmd.Flags().GetInt("recent-commits")
+			summaryPatterns, _ := cmd.Flags().GetStringSlice("summary-patterns")
 
 			// Merge command-line flags with configuration (flags take precedence)
 			cfg.MergeWithFlags(
-				excludePatterns, includePatterns,
+				excludePatterns, includePatterns, summaryPatterns,
 				minSizeStr, maxSizeStr, maxTotalSizeStr, format, outputDir,
-				maxFiles, workers, noGitignore,
+				maxFiles, workers, recentCommits,
+				noGitignore, summaryOnly, focusChanges,
 			)
 
 			// Use final configuration values
@@ -478,7 +489,7 @@ Examples:
 				if err != nil {
 					return err
 				}
-				printStatistics(stats)
+				printStatistics(stats, format)
 				return nil
 			}
 		},
@@ -494,6 +505,11 @@ Examples:
 	promptCmd.Flags().Int("max-files", DefaultConfig.MaxFiles, "Maximum number of files to process (default: 500, 0 = unlimited)")
 	promptCmd.Flags().String("max-total-size", DefaultConfig.MaxTotalSize, "Maximum total size of all files (e.g., 10MB, 0 = unlimited)")
 	promptCmd.Flags().StringP("format", "f", DefaultConfig.OutputFormat, "Output format (txt, json, xml, or stdout[:txt|json|xml])")
+	// Smart Context flags
+	promptCmd.Flags().Bool("summary-only", false, "Generate only function signatures and interfaces (AST-based summarization)")
+	promptCmd.Flags().Bool("focus-changes", false, "Prioritize recently modified files (Git-aware context)")
+	promptCmd.Flags().Int("recent-commits", 0, "Include files from last N commits (use with --focus-changes)")
+	promptCmd.Flags().StringSlice("summary-patterns", nil, "File patterns to summarize (e.g., vendor/**, node_modules/**)")
 
 	// GRAPH COMMAND
 	var graphCmd = &cobra.Command{
@@ -520,7 +536,7 @@ Examples:
   pmp graph . --format stdout:dot | dot -Tpng > graph.png  # Create PNG image
   pmp graph . --format txt > STRUCTURE.md        # Save as documentation
   pmp graph . --output /tmp/graph.json           # Custom output location`,
-		Args:  cobra.ExactArgs(1),
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			format, _ := cmd.Flags().GetString("format")
 			outputArg, _ := cmd.Flags().GetString("output")
@@ -658,7 +674,7 @@ Examples:
 				FileTypes:   map[string]int{},
 			}
 			fmt.Println()
-			printStatistics(stats)
+			printStatistics(stats, format)
 			fmt.Printf("Internal dependencies: %d\n", internalDeps)
 			fmt.Printf("External dependencies: %d\n", externalDeps)
 			fmt.Println()
@@ -667,6 +683,465 @@ Examples:
 	}
 	graphCmd.Flags().StringP("format", "f", "dot", "Output format for the graph (dot, json, xml, txt, or stdout[:dot|json|xml|txt])")
 	graphCmd.Flags().StringP("output", "o", "", "Output directory or file for the graph (default: pmp_output/)")
+
+	// GITHUB PROMPT COMMAND
+	var githubPromptCmd = &cobra.Command{
+		Use:   "prompt [github-url]",
+		Short: "Generate AI-ready prompts from a GitHub repository",
+		Long: `Clone and analyze a GitHub repository to generate structured prompts.
+
+This command clones a GitHub repository (using shallow clone for speed) and then
+generates a comprehensive prompt from its source code, exactly like the 'pmp prompt' command.
+
+Supported URL formats:
+  • https://github.com/user/repo
+  • https://github.com/user/repo.git
+  • git@github.com:user/repo.git
+
+Examples:
+  pmp github prompt https://github.com/user/repo
+  pmp github prompt https://github.com/user/repo --branch develop
+  pmp github prompt https://github.com/user/repo --format json
+  pmp github prompt https://github.com/user/repo --include "*.go" --exclude "*test*"`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			repoURL := args[0]
+			branch, _ := cmd.Flags().GetString("branch")
+
+			// Create GitHub analyzer and clone
+			ghAnalyzer := analyzer.NewGitHubAnalyzer(repoURL, branch)
+			dir, err := ghAnalyzer.Clone()
+			if err != nil {
+				return fmt.Errorf("failed to clone repository: %w", err)
+			}
+			defer ghAnalyzer.Cleanup()
+
+			// Get repository info for naming
+			repoInfo, _ := ghAnalyzer.GetRepoInfo()
+			repoName := repoInfo.Name
+			if repoName == "" {
+				repoName = "github-repo"
+			}
+
+			// Get current working directory for output
+			cwd, err := os.Getwd()
+			if err != nil {
+				return fmt.Errorf("failed to get current directory: %w", err)
+			}
+
+			// === Copy exact logic from promptCmd ===
+			cfg, err := config.LoadConfig(dir)
+			if err != nil {
+				fmt.Printf("Warning: error loading .pmprc: %v\n", err)
+				cfg = config.DefaultConfig()
+			}
+
+			// Merge with environment variables
+			envCfg := config.GetEnvironmentConfig()
+			if len(envCfg.Exclude) > 0 {
+				cfg.Exclude = envCfg.Exclude
+			}
+			if len(envCfg.Include) > 0 {
+				cfg.Include = envCfg.Include
+			}
+			if envCfg.MinSize != "" {
+				cfg.MinSize = envCfg.MinSize
+			}
+			if envCfg.MaxSize != "" {
+				cfg.MaxSize = envCfg.MaxSize
+			}
+			if envCfg.MaxFiles > 0 {
+				cfg.MaxFiles = envCfg.MaxFiles
+			}
+			if envCfg.MaxTotalSize != "" {
+				cfg.MaxTotalSize = envCfg.MaxTotalSize
+			}
+			if envCfg.Format != "" {
+				cfg.Format = envCfg.Format
+			}
+			if envCfg.OutputDir != "" {
+				cfg.OutputDir = envCfg.OutputDir
+			}
+			if envCfg.Workers > 0 {
+				cfg.Workers = envCfg.Workers
+			}
+			if envCfg.NoGitignore {
+				cfg.NoGitignore = envCfg.NoGitignore
+			}
+
+			excludePatterns, _ := cmd.Flags().GetStringSlice("exclude")
+			includePatterns, _ := cmd.Flags().GetStringSlice("include")
+			minSizeStr, _ := cmd.Flags().GetString("min-size")
+			maxSizeStr, _ := cmd.Flags().GetString("max-size")
+			noGitignore, _ := cmd.Flags().GetBool("no-gitignore")
+			outputDir, _ := cmd.Flags().GetString("output")
+			workers, _ := cmd.Flags().GetInt("workers")
+			maxFiles, _ := cmd.Flags().GetInt("max-files")
+			maxTotalSizeStr, _ := cmd.Flags().GetString("max-total-size")
+			format, _ := cmd.Flags().GetString("format")
+			summaryOnly, _ := cmd.Flags().GetBool("summary-only")
+			focusChanges, _ := cmd.Flags().GetBool("focus-changes")
+			recentCommits, _ := cmd.Flags().GetInt("recent-commits")
+			summaryPatterns, _ := cmd.Flags().GetStringSlice("summary-patterns")
+
+			cfg.MergeWithFlags(
+				excludePatterns, includePatterns, summaryPatterns,
+				minSizeStr, maxSizeStr, maxTotalSizeStr, format, outputDir,
+				maxFiles, workers, recentCommits,
+				noGitignore, summaryOnly, focusChanges,
+			)
+
+			excludePatterns = cfg.Exclude
+			includePatterns = cfg.Include
+			minSizeStr = cfg.MinSize
+			maxSizeStr = cfg.MaxSize
+			maxTotalSizeStr = cfg.MaxTotalSize
+			format = cfg.Format
+			outputDir = cfg.OutputDir
+			maxFiles = cfg.MaxFiles
+			workers = cfg.Workers
+			noGitignore = cfg.NoGitignore
+
+			minSize, err := parseSize(minSizeStr)
+			if err != nil {
+				return fmt.Errorf("invalid min-size: %w", err)
+			}
+			maxSize, err := parseSize(maxSizeStr)
+			if err != nil {
+				return fmt.Errorf("invalid max-size: %w", err)
+			}
+			var maxTotalSize int64
+			if maxTotalSizeStr != "0" && maxTotalSizeStr != "" {
+				maxTotalSize, err = parseSize(maxTotalSizeStr)
+				if err != nil {
+					return fmt.Errorf("invalid max-total-size: %w", err)
+				}
+			}
+
+			excludePatterns = append(excludePatterns, defaultExcludes...)
+			if !noGitignore {
+				patterns, err := loadGitignorePatterns(dir)
+				if err != nil {
+					fmt.Printf("Warning: error loading .gitignore: %v\n", err)
+				} else if patterns != nil {
+					excludePatterns = append(excludePatterns, patterns...)
+				}
+			}
+
+			projectAnalyzer := analyzer.New(
+				dir,
+				includePatterns,
+				excludePatterns,
+				minSize,
+				maxSize,
+				maxFiles,
+				maxTotalSize,
+				workers,
+			)
+
+			// Set custom project name and file prefix for GitHub repos
+			projectAnalyzer.ProjectName = repoName
+			projectAnalyzer.FilePrefix = repoName
+
+			if err := projectAnalyzer.CollectFiles(); err != nil {
+				return err
+			}
+
+			if format != "stdout" {
+				// Use current working directory for output (not the temp clone directory)
+				if outputDir == "" {
+					outputDir = filepath.Join(cwd, DefaultConfig.OutputDir)
+				} else if !filepath.IsAbs(outputDir) {
+					outputDir = filepath.Join(cwd, outputDir)
+				}
+				if info, err := os.Stat(outputDir); err == nil {
+					if !info.IsDir() {
+						return fmt.Errorf("output path exists and is not a directory: %s", outputDir)
+					}
+				} else if !os.IsNotExist(err) {
+					return fmt.Errorf("failed to stat output directory: %w", err)
+				}
+				if err := os.MkdirAll(outputDir, 0755); err != nil {
+					return fmt.Errorf("failed to create output directory: %w", err)
+				}
+				// Note: We don't add to .gitignore in the temp directory
+			}
+
+			if strings.HasPrefix(format, "stdout") {
+				stdoutFormat := "txt"
+				if strings.Contains(format, ":") {
+					parts := strings.SplitN(format, ":", 2)
+					if len(parts) == 2 && parts[1] != "" {
+						stdoutFormat = parts[1]
+					}
+				}
+				t0 := time.Now()
+				fmtr := formatter.NewFormatter(stdoutFormat, "", dir)
+				fmtr.SetProjectName(repoName) // Use GitHub repo name instead of temp directory name
+				technologies := detectTechnologiesLocal(projectAnalyzer.Files)
+				keyFiles := identifyKeyFilesLocal(projectAnalyzer.Files)
+				issues := identifyPotentialIssuesLocal(projectAnalyzer.Files)
+				fileTypes := collectFileExtensionsLocal(projectAnalyzer.Files)
+				for _, file := range projectAnalyzer.Files {
+					absPath := filepath.Join(dir, file)
+					fileInfo, err := os.Stat(absPath)
+					if err != nil {
+						continue
+					}
+					content, _ := os.ReadFile(absPath)
+					fmtr.AddFile(formatter.FileInfo{
+						Path:     file,
+						Size:     fileInfo.Size(),
+						Content:  string(content),
+						Language: detectFileLanguageLocal(file),
+					})
+				}
+				structure, _ := projectAnalyzer.GenerateProjectStructure()
+				duration := time.Since(t0)
+				if duration == 0 {
+					duration = time.Second
+				}
+				fmtr.SetStatistics(len(projectAnalyzer.Files), projectAnalyzer.TotalSize, projectAnalyzer.TokenCount, projectAnalyzer.CharCount, duration)
+				fmtr.SetTechnologies(technologies)
+				fmtr.SetKeyFiles(keyFiles)
+				fmtr.SetIssues(issues)
+				fmtr.SetFileTypes(fileTypes)
+				fmtr.SetProjectStructure(structure)
+				output, err := fmtr.GetFormattedContent()
+				if err != nil {
+					return err
+				}
+				fmt.Print(output)
+				return nil
+			} else {
+				stats, err := projectAnalyzer.ProcessFiles(outputDir, format)
+				if err != nil {
+					return err
+				}
+				printStatistics(stats, format)
+				return nil
+			}
+		},
+	}
+
+	githubPromptCmd.Flags().String("branch", "", "Branch to clone (default: main/master)")
+	githubPromptCmd.Flags().StringSliceP("exclude", "e", nil, "Exclude files matching these patterns (e.g., *.md, src/)")
+	githubPromptCmd.Flags().StringSliceP("include", "i", nil, "Include only files matching these patterns")
+	githubPromptCmd.Flags().String("min-size", DefaultConfig.MinSize, "Minimum file size (e.g., 1KB, 500B)")
+	githubPromptCmd.Flags().String("max-size", DefaultConfig.MaxSize, "Maximum file size (e.g., 100MB, 1GB)")
+	githubPromptCmd.Flags().Bool("no-gitignore", !DefaultConfig.GitIgnore, "Ignore .gitignore file")
+	githubPromptCmd.Flags().StringP("output", "o", DefaultConfig.OutputDir, "Output directory for the prompt file")
+	githubPromptCmd.Flags().Int("workers", DefaultConfig.WorkerCount, "Number of parallel workers (default: number of CPUs)")
+	githubPromptCmd.Flags().Int("max-files", DefaultConfig.MaxFiles, "Maximum number of files to process (default: 500, 0 = unlimited)")
+	githubPromptCmd.Flags().String("max-total-size", DefaultConfig.MaxTotalSize, "Maximum total size of all files (e.g., 10MB, 0 = unlimited)")
+	githubPromptCmd.Flags().StringP("format", "f", DefaultConfig.OutputFormat, "Output format (txt, json, xml, or stdout[:txt|json|xml])")
+	githubPromptCmd.Flags().Bool("summary-only", false, "Generate only function signatures and interfaces (AST-based summarization)")
+	githubPromptCmd.Flags().Bool("focus-changes", false, "Prioritize recently modified files (Git-aware context)")
+	githubPromptCmd.Flags().Int("recent-commits", 0, "Include files from last N commits (use with --focus-changes)")
+	githubPromptCmd.Flags().StringSlice("summary-patterns", nil, "File patterns to summarize (e.g., vendor/**, node_modules/**)")
+
+	// GITHUB GRAPH COMMAND
+	var githubGraphCmd = &cobra.Command{
+		Use:   "graph [github-url]",
+		Short: "Generate dependency graphs from a GitHub repository",
+		Long: `Clone and analyze a GitHub repository to generate visual dependency graphs.
+
+This command clones a GitHub repository (using shallow clone for speed) and then
+generates dependency graphs, exactly like the 'pmp graph' command.
+
+Supported URL formats:
+  • https://github.com/user/repo
+  • https://github.com/user/repo.git
+  • git@github.com:user/repo.git
+
+Examples:
+  pmp github graph https://github.com/user/repo
+  pmp github graph https://github.com/user/repo --branch develop
+  pmp github graph https://github.com/user/repo --format json
+  pmp github graph https://github.com/user/repo --format stdout:dot | dot -Tpng > graph.png`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			repoURL := args[0]
+			branch, _ := cmd.Flags().GetString("branch")
+
+			// Create GitHub analyzer and clone
+			ghAnalyzer := analyzer.NewGitHubAnalyzer(repoURL, branch)
+			projectPath, err := ghAnalyzer.Clone()
+			if err != nil {
+				return fmt.Errorf("failed to clone repository: %w", err)
+			}
+			defer ghAnalyzer.Cleanup()
+
+			// Get repository info for naming
+			repoInfo, _ := ghAnalyzer.GetRepoInfo()
+			repoName := repoInfo.Name
+			if repoName == "" {
+				repoName = "github-repo"
+			}
+
+			// Get current working directory for output
+			cwd, err := os.Getwd()
+			if err != nil {
+				return fmt.Errorf("failed to get current directory: %w", err)
+			}
+
+			// === Copy exact logic from graphCmd ===
+			format, _ := cmd.Flags().GetString("format")
+			outputArg, _ := cmd.Flags().GetString("output")
+
+			an := analyzer.New(
+				projectPath,
+				[]string{},
+				append([]string{}, defaultExcludes...),
+				0, 0, 0, 0, 1,
+			)
+
+			// Set custom project name for GitHub repos
+			an.ProjectName = repoName
+
+			if err := an.CollectFiles(); err != nil {
+				return err
+			}
+			structure, err := an.GenerateProjectStructure()
+			if err != nil {
+				return err
+			}
+			var ext, content string
+			var internalDeps, externalDeps int
+			t0 := time.Now()
+			if strings.HasPrefix(format, "stdout") {
+				stdoutFormat := "dot"
+				if strings.Contains(format, ":") {
+					parts := strings.SplitN(format, ":", 2)
+					if len(parts) == 2 && parts[1] != "" {
+						stdoutFormat = parts[1]
+					}
+				}
+				switch stdoutFormat {
+				case "dot":
+					tree := utils.BuildTree(an.Files, repoName)
+					content = utils.GenerateDotOutput(tree)
+				case "json":
+					tree := utils.BuildTree(an.Files, repoName)
+					content = utils.GenerateJSONTreeOutput(tree)
+				case "xml":
+					tree := utils.BuildTree(an.Files, repoName)
+					content = utils.GenerateXMLTreeOutput(tree)
+				case "txt":
+					content = structure
+				default:
+					return fmt.Errorf("unsupported stdout subformat: %s", stdoutFormat)
+				}
+				fmt.Print(content)
+				return nil
+			}
+			switch format {
+			case "dot":
+				ext = "dot"
+				tree := utils.BuildTree(an.Files, repoName)
+				content = utils.GenerateDotOutput(tree)
+				internalDeps = countDotEdges(content)
+			case "json":
+				ext = "json"
+				tree := utils.BuildTree(an.Files, repoName)
+				content = utils.GenerateJSONTreeOutput(tree)
+				internalDeps = countInternalDepsFromTree(tree)
+			case "xml":
+				ext = "xml"
+				tree := utils.BuildTree(an.Files, repoName)
+				content = utils.GenerateXMLTreeOutput(tree)
+				internalDeps = countInternalDepsFromTree(tree)
+			case "txt":
+				ext = "txt"
+				content = structure
+				internalDeps = countInternalDepsFromTree(utils.BuildTree(an.Files, repoName))
+			default:
+				return fmt.Errorf("unsupported format: %s", format)
+			}
+			timestamp := time.Now().Format("20060102_150405")
+			var outputPath string
+			if outputArg == "" {
+				// Use current working directory for output
+				outputDir := filepath.Join(cwd, DefaultConfig.OutputDir)
+				if info, err := os.Stat(outputDir); err == nil {
+					if !info.IsDir() {
+						return fmt.Errorf("output path exists and is not a directory: %s", outputDir)
+					}
+				} else if !os.IsNotExist(err) {
+					return fmt.Errorf("failed to stat output directory: %w", err)
+				}
+				if err := os.MkdirAll(outputDir, 0755); err != nil {
+					return fmt.Errorf("failed to create output directory: %w", err)
+				}
+				// Use repo name in filename
+				outputPath = filepath.Join(outputDir, fmt.Sprintf("%s_graph_%s.%s", repoName, timestamp, ext))
+			} else {
+				info, err := os.Stat(outputArg)
+				if err == nil && info.IsDir() {
+					outputPath = filepath.Join(outputArg, fmt.Sprintf("%s_graph_%s.%s", repoName, timestamp, ext))
+				} else if err == nil && !info.IsDir() {
+					outputPath = outputArg
+				} else if os.IsNotExist(err) {
+					if strings.HasSuffix(outputArg, "."+ext) {
+						outputPath = outputArg
+					} else {
+						if info, err := os.Stat(outputArg); err == nil && !info.IsDir() {
+							return fmt.Errorf("output path exists and is not a directory: %s", outputArg)
+						}
+						if err := os.MkdirAll(outputArg, 0755); err != nil {
+							return fmt.Errorf("failed to create output directory: %w", err)
+						}
+						outputPath = filepath.Join(outputArg, fmt.Sprintf("%s_graph_%s.%s", repoName, timestamp, ext))
+					}
+				} else {
+					return fmt.Errorf("invalid output path: %w", err)
+				}
+			}
+			if err := os.WriteFile(outputPath, []byte(content), 0644); err != nil {
+				return fmt.Errorf("failed to write output file: %w", err)
+			}
+			externalDeps = countExternalDeps(projectPath)
+			elapsed := time.Since(t0)
+			stats := analyzer.StatsResult{
+				FileCount:   len(an.Files),
+				TotalSize:   an.TotalSize,
+				ProcessTime: elapsed,
+				OutputPath:  outputPath,
+				FilesPerSec: float64(len(an.Files)) / elapsed.Seconds(),
+				TokenCount:  an.TokenCount,
+				CharCount:   an.CharCount,
+				KeyFiles:    []string{},
+				Issues:      []string{},
+				FileTypes:   map[string]int{},
+			}
+			fmt.Println()
+			printStatistics(stats, format)
+			fmt.Printf("Internal dependencies: %d\n", internalDeps)
+			fmt.Printf("External dependencies: %d\n", externalDeps)
+			fmt.Println()
+			return nil
+		},
+	}
+
+	githubGraphCmd.Flags().String("branch", "", "Branch to clone (default: main/master)")
+	githubGraphCmd.Flags().StringP("format", "f", "dot", "Output format for the graph (dot, json, xml, txt, or stdout[:dot|json|xml|txt])")
+	githubGraphCmd.Flags().StringP("output", "o", "", "Output directory or file for the graph (default: pmp_output/)")
+
+	// Créer une commande parente "github" pour grouper les sous-commandes
+	var githubCmd = &cobra.Command{
+		Use:   "github",
+		Short: "Analyze GitHub repositories",
+		Long: `Clone and analyze GitHub repositories directly without manual cloning.
+
+Available commands:
+  prompt - Generate AI-ready prompts from a GitHub repository
+  graph  - Generate dependency graphs from a GitHub repository
+
+These commands use shallow cloning for speed and automatically clean up temporary files.`,
+	}
+
+	githubCmd.AddCommand(githubPromptCmd)
+	githubCmd.AddCommand(githubGraphCmd)
 
 	// Ajout de la commande d'autocompletion
 	var completionCmd = &cobra.Command{
@@ -712,6 +1187,7 @@ PowerShell:
 
 	rootCmd.AddCommand(promptCmd)
 	rootCmd.AddCommand(graphCmd)
+	rootCmd.AddCommand(githubCmd)
 	rootCmd.AddCommand(completionCmd)
 
 	// Binary cache init/save
